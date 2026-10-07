@@ -79,6 +79,8 @@
   .screen > * { flex-shrink: 0; }
   .screen h1 { margin-top: auto; }
   .screen #howto, .screen #howBtn { margin-bottom: auto; }
+  .screen .row { display: flex; gap: 10px; margin-top: 12px; }
+  .screen .row button { margin-top: 0; }
   .screen .gyrostatus { font-size: .8rem; min-height: 1.2em; margin: 4px 0 0; }
   .screen button[aria-pressed="true"] { border-color: var(--gold); color: var(--gold); }
   .screen .stagegrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 22px; width: min(100%, 360px); }
@@ -144,7 +146,7 @@
     <h2>Stages</h2>
     <button id="resumeBtn">Resume</button>
     <button id="replayBtn" class="secondary">Replay this stage</button>
-    <button id="gyroBtn" class="secondary" aria-pressed="false">Gyro look: off</button>
+    <div class="row"><button id="gyroBtn" class="secondary" aria-pressed="false">Gyro look: off</button><button id="gyroInvBtn" class="secondary" aria-pressed="false">Invert</button></div>
     <p id="gyroStatus" class="gyrostatus"></p>
     <div class="stagegrid">
       <button class="secondary" data-level="1">The field</button>
@@ -502,10 +504,13 @@
   // ---------- Input ----------
   // ---- Gyro look (opt-in). The orientation handler only records the latest heading;
   // the game loop turns that into camYawTarget once per frame, so sensor spam can't stall anything.
-  const gyro = { on: false, raw: null, zero: null, bound: false };
+  const gyro = { on: false, raw: null, zero: null, bound: false, invert: false };
+  try { gyro.invert = localStorage.getItem('rampart-gyro-invert') === '1'; } catch (e) {}
   function onOrient(e) {
     // compass heading grows clockwise (turning right); alpha grows counter-clockwise, so it's negated
-    const a = e.webkitCompassHeading != null ? e.webkitCompassHeading : (e.alpha == null ? null : -e.alpha);
+    let a = e.webkitCompassHeading != null ? -e.webkitCompassHeading : e.alpha;
+    if (a == null) return;
+    if (gyro.invert) a = -a;
     if (a == null) return;
     gyro.raw = a * Math.PI / 180;
     if (gyro.zero == null) gyro.zero = gyro.raw;
@@ -530,6 +535,14 @@
     let d = gyro.raw - gyro.zero; d = Math.atan2(Math.sin(d), Math.cos(d));
     return Math.max(-LOOK_MAX, Math.min(LOOK_MAX, d));
   }
+  const invBtn = document.getElementById('gyroInvBtn');
+  invBtn.setAttribute('aria-pressed', gyro.invert ? 'true' : 'false');
+  invBtn.addEventListener('click', () => {
+    gyro.invert = !gyro.invert; invBtn.setAttribute('aria-pressed', gyro.invert ? 'true' : 'false');
+    try { localStorage.setItem('rampart-gyro-invert', gyro.invert ? '1' : '0'); } catch (e) {}
+    if (gyro.raw != null) { gyro.raw = -gyro.raw; gyro.zero = gyro.raw; }   // keep the current facing as forward
+    setGyroStatus(gyro.invert ? 'Gyro direction inverted.' : 'Gyro direction normal.');
+  });
   document.getElementById('gyroBtn').addEventListener('click', async e => {
     const b = e.currentTarget;
     if (gyro.on) { gyro.on = false; b.textContent = 'Gyro look: off'; b.setAttribute('aria-pressed', 'false'); setGyroStatus(''); return; }
