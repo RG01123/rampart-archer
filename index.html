@@ -138,6 +138,7 @@
       <p>The siege camp is a night raid lit by torches: the pack comes as black shapes with burning eyes. The pause button opens the stage menu at any time.</p>
       <p>The citadel: archers hold the ledges at different ranges and loose flaming arrows at you. Shoot the arrows out of the air, or the archers themselves. Ledges block your bolts, so find the angle.</p>
       <p>Look around: hold the edge arrows, or drag with two fingers. Tap the compass to face forward again. Aiming follows where you look.</p>
+      <p>Sound can be switched off from the pause menu. On iPhone, the ringer switch must be on to hear it.</p>
       <p>Arrow time: tap the stopwatch to arm it, then shoot. If the bolt is going to connect, you ride it in slow motion.</p>
     </div>
   </div>
@@ -147,6 +148,7 @@
     <button id="resumeBtn">Resume</button>
     <button id="replayBtn" class="secondary">Replay this stage</button>
     <div class="row"><button id="gyroBtn" class="secondary" aria-pressed="false">Gyro look: off</button><button id="gyroInvBtn" class="secondary" aria-pressed="false">Invert</button></div>
+    <button id="muteBtn" class="secondary" aria-pressed="false">Sound: on</button>
     <p id="gyroStatus" class="gyrostatus"></p>
     <div class="stagegrid">
       <button class="secondary" data-level="1">The field</button>
@@ -430,7 +432,7 @@
     if (t.howl) {
       // the alpha howls: everything alive on the field rallies for a few seconds
       for (const o of state.enemies) if (!o.dying) o.rally = 4;
-      showBanner('A howl in the dark', 1400);
+      showBanner('A howl in the dark', 1400); SFX.howl((Math.random() * 2 - 1) * 7, SPAWN_Z);
     }
     const speedMul = 1 + (state.wave - 1) * 0.07;
     state.enemies.push({
@@ -496,6 +498,275 @@
     state.shotsFired++;
   }
 
+  // ---------- Audio: everything synthesized with Web Audio, no files ----------
+  const SFX = (() => {
+    let ac = null, master = null, sfxBus = null, ambBus = null, noiseBuf = null;
+    let muted = false; try { muted = localStorage.getItem('rampart-mute') === '1'; } catch (e) {}
+    const amb = { nodes: [], level: null, kind: null };
+    const loops = {};            // keyed continuous sounds: draw, flight, fire, wolves
+    function ctxOk() { return ac && ac.state === 'running'; }
+    function init() {
+      if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
+      try {
+        ac = new (window.AudioContext || window.webkitAudioContext)();
+        master = ac.createGain(); master.gain.value = muted ? 0 : 1; master.connect(ac.destination);
+        sfxBus = ac.createGain(); sfxBus.gain.value = 0.9; sfxBus.connect(master);
+        ambBus = ac.createGain(); ambBus.gain.value = 0.5; ambBus.connect(master);
+        // 2s of white noise, reused everywhere
+        noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
+        const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+        if (ac.state === 'suspended') ac.resume();
+      } catch (e) { ac = null; }
+    }
+    const now = () => ac.currentTime;
+    function noise(filterType, freq, q) {
+      const src = ac.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+      const f = ac.createBiquadFilter(); f.type = filterType; f.frequency.value = freq; f.Q.value = q || 1;
+      src.connect(f); return { src, f };
+    }
+    function env(node, t0, a, peak, d, sustain, r, t1) {
+      // simple ADSR on a gain param
+      const g = node.gain; g.cancelScheduledValues(t0); g.setValueAtTime(0.0001, t0);
+      g.exponentialRampToValueAtTime(Math.max(0.0001, peak), t0 + a);
+      g.exponentialRampToValueAtTime(Math.max(0.0001, sustain), t0 + a + d);
+      if (t1 != null) { g.setValueAtTime(Math.max(0.0001, sustain), t1); g.exponentialRampToValueAtTime(0.0001, t1 + r); }
+    }
+    // distance → gain and lowpass, so far things are quiet and dull
+    function spatial(z, x) {
+      const d = Math.hypot(x || 0, z || 0);
+      return { gain: 1 / (1 + d * d / 60), lp: 6000 / (1 + d / 10), pan: Math.max(-1, Math.min(1, (x || 0) / 10)) };
+    }
+    function out(z, x, extraGain) {
+      const sp = spatial(z, x);
+      const g = ac.createGain(); g.gain.value = sp.gain * (extraGain || 1);
+      const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = sp.lp;
+      let last = f;
+      if (ac.createStereoPanner) { const p = ac.createStereoPanner(); p.pan.value = sp.pan; f.connect(p); last = p; }
+      last.connect(sfxBus); g.connect(f);
+      return g;
+    }
+
+    // ---- one-shots ----
+    function release(power) {
+      if (!ctxOk()) return; const t = now();
+      // string snap: short bright noise burst + a low thump
+      const n = noise('bandpass', 1800, 2); const g = ac.createGain(); n.f.connect(g); g.connect(sfxBus);
+      env(g, t, 0.003, 0.8, 0.06, 0.0001, 0.02); n.src.start(t); n.src.stop(t + 0.15);
+      const o = ac.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(50, t + 0.12);
+      const g2 = ac.createGain(); o.connect(g2); g2.connect(sfxBus); env(g2, t, 0.002, 0.6, 0.12, 0.0001, 0.02); o.start(t); o.stop(t + 0.2);
+    }
+    function hit(kind, x, z, head) {
+      if (!ctxOk()) return; const t = now(); const g = out(z, x, head ? 1.2 : 1);
+      if (kind === 'zombie') {
+        // wet thud + a low groan
+        const n = noise('lowpass', 500, 0.7); const ng = ac.createGain(); n.f.connect(ng); ng.connect(g);
+        env(ng, t, 0.004, 1.0, 0.09, 0.0001, 0.05); n.src.start(t); n.src.stop(t + 0.25);
+        const o = ac.createOscillator(); o.type = 'sawtooth'; o.frequency.setValueAtTime(110 + Math.random() * 30, t); o.frequency.exponentialRampToValueAtTime(70, t + 0.5);
+        const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 500; const og = ac.createGain();
+        o.connect(f); f.connect(og); og.connect(g); env(og, t + 0.03, 0.05, 0.35, 0.3, 0.0001, 0.1); o.start(t); o.stop(t + 0.7);
+      } else if (kind === 'wolf') {
+        // sharp impact + yelp (fast pitch dive)
+        const n = noise('bandpass', 900, 1.5); const ng = ac.createGain(); n.f.connect(ng); ng.connect(g);
+        env(ng, t, 0.003, 0.9, 0.06, 0.0001, 0.04); n.src.start(t); n.src.stop(t + 0.2);
+        const o = ac.createOscillator(); o.type = 'square'; o.frequency.setValueAtTime(900, t + 0.02); o.frequency.exponentialRampToValueAtTime(380, t + 0.3);
+        const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1600; const og = ac.createGain();
+        o.connect(f); f.connect(og); og.connect(g); env(og, t + 0.02, 0.01, 0.25, 0.25, 0.0001, 0.05); o.start(t); o.stop(t + 0.4);
+      } else if (kind === 'archer') {
+        // dry thunk + short grunt
+        const n = noise('bandpass', 400, 2); const ng = ac.createGain(); n.f.connect(ng); ng.connect(g);
+        env(ng, t, 0.003, 1.0, 0.07, 0.0001, 0.04); n.src.start(t); n.src.stop(t + 0.2);
+        const o = ac.createOscillator(); o.type = 'sawtooth'; o.frequency.setValueAtTime(180, t + 0.02); o.frequency.exponentialRampToValueAtTime(120, t + 0.18);
+        const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 700; const og = ac.createGain();
+        o.connect(f); f.connect(og); og.connect(g); env(og, t + 0.02, 0.02, 0.3, 0.15, 0.0001, 0.05); o.start(t); o.stop(t + 0.3);
+      } else if (kind === 'critter') {
+        // small squeak/flutter and a bright chime for the reward
+        const o = ac.createOscillator(); o.type = 'triangle'; o.frequency.setValueAtTime(1400, t); o.frequency.exponentialRampToValueAtTime(2200, t + 0.08);
+        const og = ac.createGain(); o.connect(og); og.connect(g); env(og, t, 0.005, 0.25, 0.1, 0.0001, 0.03); o.start(t); o.stop(t + 0.2);
+        for (let i = 0; i < 3; i++) { const c = ac.createOscillator(); c.type = 'sine'; c.frequency.value = [880, 1320, 1760][i]; const cg = ac.createGain(); c.connect(cg); cg.connect(sfxBus); env(cg, t + 0.08 + i * 0.07, 0.005, 0.18, 0.25, 0.0001, 0.1); c.start(t + 0.08 + i * 0.07); c.stop(t + 0.6 + i * 0.07); }
+      } else if (kind === 'target') {
+        const n = noise('bandpass', 600, 3); const ng = ac.createGain(); n.f.connect(ng); ng.connect(g);
+        env(ng, t, 0.002, 0.9, 0.05, 0.0001, 0.08); n.src.start(t); n.src.stop(t + 0.2);
+      } else if (kind === 'wood') {
+        const n = noise('bandpass', 300, 2); const ng = ac.createGain(); n.f.connect(ng); ng.connect(g);
+        env(ng, t, 0.002, 0.8, 0.05, 0.0001, 0.06); n.src.start(t); n.src.stop(t + 0.2);
+      } else if (kind === 'ground') {
+        const n = noise('lowpass', 400, 1); const ng = ac.createGain(); n.f.connect(ng); ng.connect(g);
+        env(ng, t, 0.002, 0.5, 0.05, 0.0001, 0.05); n.src.start(t); n.src.stop(t + 0.15);
+      } else if (kind === 'intercept') {
+        const n = noise('highpass', 2500, 1); const ng = ac.createGain(); n.f.connect(ng); ng.connect(g);
+        env(ng, t, 0.002, 0.7, 0.08, 0.0001, 0.1); n.src.start(t); n.src.stop(t + 0.25);
+        const o = ac.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(1200, t); o.frequency.exponentialRampToValueAtTime(2400, t + 0.1);
+        const og = ac.createGain(); o.connect(og); og.connect(g); env(og, t, 0.005, 0.2, 0.12, 0.0001, 0.05); o.start(t); o.stop(t + 0.25);
+      }
+    }
+    function explosion(x, z) {
+      if (!ctxOk()) return; const t = now(); const g = out(z, x, 1.6);
+      const n = noise('lowpass', 1200, 0.5); n.f.frequency.setValueAtTime(3000, t); n.f.frequency.exponentialRampToValueAtTime(120, t + 1.2);
+      const ng = ac.createGain(); n.f.connect(ng); ng.connect(g); env(ng, t, 0.005, 1.0, 0.5, 0.0001, 0.7); n.src.start(t); n.src.stop(t + 1.5);
+      const o = ac.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(90, t); o.frequency.exponentialRampToValueAtTime(28, t + 0.8);
+      const og = ac.createGain(); o.connect(og); og.connect(g); env(og, t, 0.005, 0.9, 0.6, 0.0001, 0.3); o.start(t); o.stop(t + 1.2);
+      // debris crackle
+      for (let i = 0; i < 6; i++) { const dn = noise('bandpass', 2000 + Math.random() * 2000, 4); const dg = ac.createGain(); dn.f.connect(dg); dg.connect(g); const dt = t + 0.1 + Math.random() * 0.6; env(dg, dt, 0.002, 0.3, 0.04, 0.0001, 0.03); dn.src.start(dt); dn.src.stop(dt + 0.1); }
+    }
+    function wallHit() {
+      if (!ctxOk()) return; const t = now();
+      const n = noise('lowpass', 700, 0.8); const ng = ac.createGain(); n.f.connect(ng); ng.connect(sfxBus);
+      env(ng, t, 0.003, 0.9, 0.15, 0.0001, 0.2); n.src.start(t); n.src.stop(t + 0.5);
+      const o = ac.createOscillator(); o.type = 'triangle'; o.frequency.setValueAtTime(70, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.3);
+      const og = ac.createGain(); o.connect(og); og.connect(sfxBus); env(og, t, 0.003, 0.7, 0.3, 0.0001, 0.1); o.start(t); o.stop(t + 0.5);
+    }
+    function recock() {
+      if (!ctxOk()) return; const t = now();
+      for (let i = 0; i < 3; i++) { const n = noise('bandpass', 900 + i * 300, 6); const g = ac.createGain(); n.f.connect(g); g.connect(sfxBus); const tt = t + i * 0.05; env(g, tt, 0.002, 0.25, 0.03, 0.0001, 0.02); n.src.start(tt); n.src.stop(tt + 0.08); }
+      const o = ac.createOscillator(); o.type = 'square'; o.frequency.value = 220; const og = ac.createGain(); const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 900;
+      o.connect(f); f.connect(og); og.connect(sfxBus); env(og, t + 0.14, 0.002, 0.2, 0.05, 0.0001, 0.03); o.start(t + 0.14); o.stop(t + 0.25);
+    }
+    function howl(x, z) {
+      if (!ctxOk()) return; const t = now(); const g = out(z, x, 1.3);
+      const o = ac.createOscillator(); o.type = 'sawtooth';
+      o.frequency.setValueAtTime(220, t); o.frequency.exponentialRampToValueAtTime(520, t + 0.6); o.frequency.setValueAtTime(520, t + 1.4); o.frequency.exponentialRampToValueAtTime(300, t + 2.2);
+      const v = ac.createOscillator(); v.frequency.value = 5.5; const vg = ac.createGain(); vg.gain.value = 12; v.connect(vg); vg.connect(o.frequency);
+      const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1400; f.Q.value = 2; const og = ac.createGain();
+      o.connect(f); f.connect(og); og.connect(g); env(og, t, 0.3, 0.5, 1.2, 0.3, 0.6, t + 1.6); o.start(t); v.start(t); o.stop(t + 2.4); v.stop(t + 2.4);
+    }
+    function flap(x, z) {
+      if (!ctxOk()) return; const t = now(); const g = out(z, x, 0.8);
+      for (let i = 0; i < 5; i++) { const n = noise('bandpass', 500, 2); const ng = ac.createGain(); n.f.connect(ng); ng.connect(g); const tt = t + i * 0.09; env(ng, tt, 0.01, 0.35, 0.04, 0.0001, 0.03); n.src.start(tt); n.src.stop(tt + 0.1); }
+    }
+    function scurry(x, z) {
+      if (!ctxOk()) return; const t = now(); const g = out(z, x, 0.9);
+      for (let i = 0; i < 8; i++) { const n = noise('highpass', 3500, 1); const ng = ac.createGain(); n.f.connect(ng); ng.connect(g); const tt = t + i * 0.045; env(ng, tt, 0.002, 0.25, 0.02, 0.0001, 0.015); n.src.start(tt); n.src.stop(tt + 0.05); }
+      const o = ac.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(3200, t + 0.1); o.frequency.exponentialRampToValueAtTime(4200, t + 0.16);
+      const og = ac.createGain(); o.connect(og); og.connect(g); env(og, t + 0.1, 0.005, 0.12, 0.06, 0.0001, 0.02); o.start(t + 0.1); o.stop(t + 0.2);
+    }
+    function enemyLoose(x, z) {
+      if (!ctxOk()) return; const t = now(); const g = out(z, x, 0.9);
+      const n = noise('bandpass', 1500, 2); const ng = ac.createGain(); n.f.connect(ng); ng.connect(g);
+      env(ng, t, 0.003, 0.6, 0.05, 0.0001, 0.02); n.src.start(t); n.src.stop(t + 0.12);
+    }
+    function ui() {
+      if (!ctxOk()) return; const t = now();
+      const o = ac.createOscillator(); o.type = 'sine'; o.frequency.value = 660; const og = ac.createGain(); o.connect(og); og.connect(sfxBus);
+      env(og, t, 0.005, 0.15, 0.08, 0.0001, 0.05); o.start(t); o.stop(t + 0.2);
+    }
+
+    // ---- continuous sounds, set each frame ----
+    function loop(key, make) {
+      if (!ctxOk()) return null;
+      if (!loops[key]) loops[key] = make();
+      return loops[key];
+    }
+    function setDraw(level, speed) {
+      // creaking string under tension: filtered noise whose pitch rises with the draw, plus a creak when the aim moves
+      const L = loop('draw', () => {
+        const n = noise('bandpass', 400, 8); const g = ac.createGain(); g.gain.value = 0; n.f.connect(g); g.connect(sfxBus); n.src.start();
+        const c = noise('bandpass', 1200, 12); const cg = ac.createGain(); cg.gain.value = 0; c.f.connect(cg); cg.connect(sfxBus); c.src.start();
+        return { n, g, c, cg };
+      });
+      if (!L) return;
+      const t = now();
+      L.g.gain.setTargetAtTime(level * 0.18, t, 0.05);
+      L.n.f.frequency.setTargetAtTime(300 + level * 500, t, 0.08);
+      L.cg.gain.setTargetAtTime(Math.min(0.25, speed * 0.004) * level, t, 0.03);
+    }
+    function setFlight(level) {
+      // air rushing past the bolt: a band of noise, pitch tied to speed
+      const L = loop('flight', () => { const n = noise('bandpass', 2500, 1.2); const g = ac.createGain(); g.gain.value = 0; n.f.connect(g); g.connect(sfxBus); n.src.start(); return { n, g }; });
+      if (!L) return; L.g.gain.setTargetAtTime(level * 0.22, now(), 0.04);
+    }
+    function setFire(level, x, z) {
+      // crackling fire: lowpassed noise with a slow random flutter, plus crackle pops
+      const L = loop('fire', () => {
+        const n = noise('lowpass', 900, 0.5); const g = ac.createGain(); g.gain.value = 0; n.f.connect(g);
+        const p = ac.createStereoPanner ? ac.createStereoPanner() : null; if (p) { g.connect(p); p.connect(sfxBus); } else g.connect(sfxBus);
+        n.src.start(); return { n, g, p, nextPop: 0, level: 0 };
+      });
+      if (!L) return;
+      const t = now(); L.level = level;
+      L.g.gain.setTargetAtTime(level * 0.35, t, 0.1);
+      L.n.f.frequency.setTargetAtTime(600 + Math.random() * 500, t, 0.15);
+      if (L.p) L.p.pan.setTargetAtTime(Math.max(-1, Math.min(1, (x || 0) / 10)), t, 0.2);
+      if (level > 0.05 && t > L.nextPop) {
+        L.nextPop = t + 0.05 + Math.random() * 0.25 / level;
+        const c = noise('bandpass', 2000 + Math.random() * 3000, 6); const cg = ac.createGain(); c.f.connect(cg); cg.connect(sfxBus);
+        env(cg, t, 0.002, 0.25 * level, 0.02, 0.0001, 0.02); c.src.start(t); c.src.stop(t + 0.06);
+      }
+    }
+    function setWolves(level, x) {
+      // low growl bed from the pack, louder as they close in
+      const L = loop('wolves', () => {
+        const o = ac.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 55;
+        const o2 = ac.createOscillator(); o2.type = 'sawtooth'; o2.frequency.value = 57.5;
+        const tr = ac.createOscillator(); tr.frequency.value = 22; const trg = ac.createGain(); trg.gain.value = 0.5;   // growl rattle
+        const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 260; f.Q.value = 3;
+        const g = ac.createGain(); g.gain.value = 0; const vca = ac.createGain(); vca.gain.value = 0.5;
+        o.connect(f); o2.connect(f); f.connect(vca); vca.connect(g); tr.connect(trg); trg.connect(vca.gain);
+        const p = ac.createStereoPanner ? ac.createStereoPanner() : null; if (p) { g.connect(p); p.connect(sfxBus); } else g.connect(sfxBus);
+        o.start(); o2.start(); tr.start(); return { g, p, f };
+      });
+      if (!L) return; const t = now();
+      L.g.gain.setTargetAtTime(level * 0.5, t, 0.25);
+      L.f.frequency.setTargetAtTime(180 + level * 300, t, 0.3);
+      if (L.p) L.p.pan.setTargetAtTime(Math.max(-1, Math.min(1, (x || 0) / 8)), t, 0.3);
+    }
+
+    // ---- ambience per stage ----
+    function ambience(kind) {
+      if (!ctxOk()) { amb.kind = null; return; }
+      if (amb.kind === kind) return;
+      stopAmbience();
+      amb.kind = kind; if (!kind) return;
+      const level = ac.createGain(); level.gain.value = 0; level.connect(ambBus); amb.level = level;
+      const add = n => amb.nodes.push(n);
+      // wind: always, varies by stage
+      const w = noise('lowpass', 400, 0.6); const wg = ac.createGain(); wg.gain.value = kind === 'range' ? 0.25 : 0.4; w.f.connect(wg); wg.connect(level); w.src.start(); add(w.src);
+      const lfo = ac.createOscillator(); lfo.frequency.value = 0.07; const lg = ac.createGain(); lg.gain.value = 250; lfo.connect(lg); lg.connect(w.f.frequency); lfo.start(); add(lfo);
+      if (kind === 'forest' || kind === 'camp' || kind === 'raid') {
+        // low drone + sparse owl/creak calls
+        const d = ac.createOscillator(); d.type = 'sine'; d.frequency.value = kind === 'forest' ? 48 : 42; const dg = ac.createGain(); dg.gain.value = 0.12; d.connect(dg); dg.connect(level); d.start(); add(d);
+        amb.callTimer = setInterval(() => {
+          if (!ctxOk() || amb.kind !== kind) return; const t = now();
+          const o = ac.createOscillator(); o.type = 'sine'; const base = 380 + Math.random() * 120;
+          o.frequency.setValueAtTime(base, t); o.frequency.exponentialRampToValueAtTime(base * 0.8, t + 0.5); o.frequency.setValueAtTime(base * 0.8, t + 0.7); o.frequency.exponentialRampToValueAtTime(base * 0.7, t + 1.1);
+          const og = ac.createGain(); o.connect(og); og.connect(level); env(og, t, 0.1, 0.08, 0.4, 0.06, 0.4, t + 0.8); o.start(t); o.stop(t + 1.5);
+        }, 9000 + Math.random() * 8000);
+      }
+      if (kind === 'camp' || kind === 'raid') {
+        // distant torches crackling
+        const c = noise('lowpass', 1200, 0.6); const cg = ac.createGain(); cg.gain.value = 0.08; c.f.connect(cg); cg.connect(level); c.src.start(); add(c.src);
+      }
+      if (kind === 'field') {
+        // crickets: two high chirp oscillators gated by an LFO
+        for (const [f0, r0] of [[4200, 7], [4600, 8.5]]) {
+          const o = ac.createOscillator(); o.type = 'sine'; o.frequency.value = f0; const g = ac.createGain(); g.gain.value = 0;
+          const l = ac.createOscillator(); l.type = 'square'; l.frequency.value = r0; const lg2 = ac.createGain(); lg2.gain.value = 0.03; l.connect(lg2); lg2.connect(g.gain);
+          o.connect(g); g.connect(level); o.start(); l.start(); add(o); add(l);
+        }
+      }
+      if (kind === 'range') {
+        // birds: random short chirps
+        amb.callTimer = setInterval(() => {
+          if (!ctxOk() || amb.kind !== 'range') return; const t = now();
+          for (let i = 0; i < 2 + Math.floor(Math.random() * 3); i++) { const o = ac.createOscillator(); o.type = 'sine'; const b = 2200 + Math.random() * 1500; o.frequency.setValueAtTime(b, t + i * 0.12); o.frequency.exponentialRampToValueAtTime(b * 1.3, t + i * 0.12 + 0.06); const og = ac.createGain(); o.connect(og); og.connect(level); env(og, t + i * 0.12, 0.01, 0.06, 0.06, 0.0001, 0.03); o.start(t + i * 0.12); o.stop(t + i * 0.12 + 0.15); }
+        }, 2500 + Math.random() * 4000);
+      }
+      if (kind === 'citadel') {
+        // hollow wind through stone, deeper and more tonal
+        const h = noise('bandpass', 220, 6); const hg = ac.createGain(); hg.gain.value = 0.35; h.f.connect(hg); hg.connect(level); h.src.start(); add(h.src);
+        const l2 = ac.createOscillator(); l2.frequency.value = 0.05; const l2g = ac.createGain(); l2g.gain.value = 90; l2.connect(l2g); l2g.connect(h.f.frequency); l2.start(); add(l2);
+      }
+      level.gain.setTargetAtTime(1, now(), 1.5);
+    }
+    function stopAmbience() {
+      if (amb.callTimer) { clearInterval(amb.callTimer); amb.callTimer = null; }
+      if (amb.level) { const l = amb.level, nodes = amb.nodes; l.gain.setTargetAtTime(0, now(), 0.5); setTimeout(() => { nodes.forEach(n => { try { n.stop(); } catch (e) {} }); try { l.disconnect(); } catch (e) {} }, 1500); }
+      amb.nodes = []; amb.level = null; amb.kind = null;
+    }
+    function setMuted(m) { muted = m; try { localStorage.setItem('rampart-mute', m ? '1' : '0'); } catch (e) {} if (master) master.gain.setTargetAtTime(m ? 0 : 1, now(), 0.05); }
+    function isMuted() { return muted; }
+    return { init, release, hit, explosion, wallHit, recock, howl, flap, scurry, enemyLoose, ui, setDraw, setFlight, setFire, setWolves, ambience, stopAmbience, setMuted, isMuted, ok: ctxOk };
+  })();
+
   // ---------- Haptics (Android Chrome; iOS Safari has no vibration API) ----------
   const canBuzz = typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function';
   function buzz(pattern) { if (!canBuzz) return; try { navigator.vibrate(pattern); } catch (e) {} }
@@ -535,6 +806,10 @@
     let d = gyro.raw - gyro.zero; d = Math.atan2(Math.sin(d), Math.cos(d));
     return Math.max(-LOOK_MAX, Math.min(LOOK_MAX, d));
   }
+  const muteBtn = document.getElementById('muteBtn');
+  const syncMute = () => { muteBtn.textContent = SFX.isMuted() ? 'Sound: off' : 'Sound: on'; muteBtn.setAttribute('aria-pressed', SFX.isMuted() ? 'true' : 'false'); };
+  syncMute();
+  muteBtn.addEventListener('click', () => { SFX.init(); SFX.setMuted(!SFX.isMuted()); syncMute(); if (!SFX.isMuted()) SFX.ui(); });
   const invBtn = document.getElementById('gyroInvBtn');
   invBtn.setAttribute('aria-pressed', gyro.invert ? 'true' : 'false');
   invBtn.addEventListener('click', () => {
@@ -552,6 +827,7 @@
   let pan = null;        // two-finger look: { id, x0, yaw0 }
   let lastCompass = null;
   canvas.addEventListener('pointerdown', e => {
+    SFX.init();
     if (!state.running || paused || ride) return;
     canvas.setPointerCapture(e.pointerId);
     // tap on the compass: recenter the view
@@ -569,6 +845,7 @@
       return;
     }
     if (!state.aim || e.pointerId !== state.aim.id) return;
+    state.aim.moved = (state.aim.moved || 0) + Math.hypot(e.clientX - state.aim.cx, e.clientY - state.aim.cy);
     state.aim.cx = e.clientX; state.aim.cy = e.clientY;
     // ratchet ticks as the aim moves
     const dx = e.clientX - state.aim.tickX, dy = e.clientY - state.aim.tickY;
@@ -578,7 +855,7 @@
     if (pan && e.pointerId === pan.id) { pan = null; return; }
     if (!state.aim || e.pointerId !== state.aim.id) return;
     const vel = launchVelocity(state.aim);
-    if (state.reload <= 0) { fire(vel); buzz(40); }
+    if (state.reload <= 0) { fire(vel); buzz(40); SFX.release(); }
     state.aim = null;
   }
   // edge look buttons: hold to turn
@@ -595,7 +872,7 @@
   function update(dt) {
     const s = state;
     if (s.level === 3) { updateRange(dt); return; }
-    if (s.reload > 0) { s.reload -= dt; if (s.reload <= 0) buzz([12, 40, 20]); }
+    if (s.reload > 0) { s.reload -= dt; if (s.reload <= 0) { buzz([12, 40, 20]); SFX.recock(); } }
     if (s.shake > 0) s.shake -= dt * 3;
 
     // Spawning
@@ -659,7 +936,7 @@
       en.x += en.veer * en.speedMul * dt + (0 - en.x) * 0.03 * dt;   // veer, plus slight drift toward the gate
       en.x = Math.max(-8, Math.min(8, en.x));
       if (en.z <= WALL_Z) {
-        en.dying = 1.2; en.reached = true;
+        en.dying = 1.2; en.reached = true; SFX.wallHit();
         s.hp = Math.max(0, s.hp - en.dmg); s.shake = 1;
         updateHP();
         if (s.hp <= 0) { gameOver(); return; }
@@ -676,7 +953,7 @@
       if (inc.z <= WALL_Z + 0.3) {
         inc.dead = true;
         if (Math.abs(inc.x) < 3 && inc.y < 3.2 && inc.y > -0.5) {
-          s.hp = Math.max(0, s.hp - 1); s.shake = 1; s.wallFlash = 0.35; updateHP();
+          s.hp = Math.max(0, s.hp - 1); s.shake = 1; s.wallFlash = 0.35; updateHP(); SFX.wallHit();
           burst(inc.x, Math.max(0.3, inc.y), WALL_Z + 0.3, 16, '#ff8a2a'); buzz([40, 30, 40]);
           if (s.hp <= 0) { gameOver(); return; }
         }
@@ -711,6 +988,7 @@
       if (a.y <= 0) {
         a.dead = true; s.stuck.push({ x: a.x, z: a.z, t: 0, yaw: Math.atan2(a.vx, a.vz), fire: a.fire });
         if (a.fire && isDark()) for (const tr of s.trees) if (tr.type === 'bush' && Math.abs(a.x - tr.x) < tr.w * 0.8 && Math.abs(a.z - tr.z) < 0.9) { igniteTree(tr); break; }
+        SFX.hit('ground', a.x, a.z);
         continue;
       }
       // Trees are solid: a bolt sticks in the first one it reaches, shielding anything behind it
@@ -721,7 +999,7 @@
           if (treeHit(tr, a.x, a.y, a.z)) {
             a.dead = true; blocked = true;
             s.stuck.push({ x: a.x, y: a.y, z: tr.z - 0.3, t: 0, yaw: Math.atan2(a.vx, a.vz), fire: a.fire, inTree: true });
-            burst(a.x, a.y, a.z, 5, '#6b5a3a');
+            burst(a.x, a.y, a.z, 5, '#6b5a3a'); SFX.hit('wood', a.x, a.z);
             if (a.fire) igniteTree(tr);
             break;
           }
@@ -737,12 +1015,12 @@
             inc.dead = true; a.dead = true; stop = true;
             burst(inc.x, inc.y, inc.z, 18, '#ffd37a'); burst(inc.x, inc.y, inc.z, 8, '#ff8a2a');
             s.score += 5; scoreEl.textContent = s.score; floatText(inc.x, inc.y + 0.4, inc.z, '+5');
-            buzz([15, 20, 30]); break;
+            buzz([15, 20, 30]); SFX.hit('intercept', inc.x, inc.z); break;
           }
         }
         if (!stop) for (const L of LEDGES) {
           if (a.x > L.x0 && a.x < L.x1 && a.z > L.z - 0.4 && a.z < L.z + L.d && a.y < L.y) {
-            a.dead = true; stop = true; s.stuck.push({ x: a.x, y: a.y, z: L.z - 0.4, t: 0, yaw: 0, inTree: true }); burst(a.x, a.y, a.z, 5, '#6a6e80'); break;
+            a.dead = true; stop = true; s.stuck.push({ x: a.x, y: a.y, z: L.z - 0.4, t: 0, yaw: 0, inTree: true }); burst(a.x, a.y, a.z, 5, '#6a6e80'); SFX.hit('wood', a.x, a.z); break;
           }
         }
         if (stop) continue;
@@ -752,6 +1030,7 @@
         const r = en.w * 0.55, b0 = en.baseY || 0;
         if (Math.abs(a.x - en.x) < r && Math.abs(a.z - en.z) < r + 0.35 && a.y >= b0 && a.y <= b0 + en.h) {
           const head = (a.y - b0) > en.h * 0.72;
+          SFX.hit(en.archer ? 'archer' : (en.wolf ? 'wolf' : 'zombie'), en.x, en.z, head);
           en.hp -= a.silver ? 99 : (head ? 2 : 1); en.hit = 0.15;
           if (a.silver) burst(en.x, a.y, en.z, 12, '#cfe6ff');
           burst(en.x, a.y, en.z, head ? 14 : 7, head ? '#f0c052' : '#b0291f');
@@ -769,7 +1048,7 @@
         if (Math.abs(a.x - b.x) < b.r + 0.15 && Math.abs(a.z - b.z) < b.r + 0.4 && a.y < b.r * 2.1) {
           a.dead = true;
           if (a.fire) explodeBarrel(b);
-          else { burst(a.x, a.y, a.z, 6, '#8a6a3a'); b.vx *= 0.75; }   // a plain bolt just thunks in and slows it
+          else { burst(a.x, a.y, a.z, 6, '#8a6a3a'); b.vx *= 0.75; SFX.hit('wood', a.x, a.z); }   // a plain bolt just thunks in and slows it
           break;
         }
       }
@@ -780,7 +1059,7 @@
       for (const c of s.critters) {
         if (c.hit) continue;
         if (Math.abs(a.x - c.x) < 0.75 && Math.abs(a.z - c.z) < 0.9 && Math.abs(a.y - c.y) < 0.7) {
-          c.hit = 0.01; a.dead = true;
+          c.hit = 0.01; a.dead = true; SFX.hit('critter', c.x, c.z);
           burst(c.x, c.y, c.z, 16, REWARDS[c.reward].color);
           floatText(c.x, c.y + 0.6, c.z, REWARDS[c.reward].label);
           REWARDS[c.reward].apply();
@@ -797,6 +1076,8 @@
       if (c.hit) { c.hit += dt; continue; }
       c.t += dt; c.x += c.vx * dt;
       if (c.kind === 'bat') c.y = c.baseY + Math.sin(c.t * 3) * 0.35;
+      c.sndT -= dt;
+      if (c.sndT <= 0 && Math.abs(c.x) < 12) { c.sndT = c.kind === 'bat' ? 0.9 : 0.7; if (c.kind === 'bat') SFX.flap(c.x, c.z); else SFX.scurry(c.x, c.z); }
     }
     s.critters = s.critters.filter(c => !(c.hit > 0.4) && Math.abs(c.x) < 18);
     // Barrels
@@ -930,7 +1211,7 @@
     b.dead = true;
     const s = state;
     s.blasts.push({ x: b.x, z: b.z, t: 0 });
-    s.shake = Math.max(s.shake, 1.2); buzz([30, 20, 60]);
+    s.shake = Math.max(s.shake, 1.2); buzz([30, 20, 60]); SFX.explosion(b.x, b.z);
     burst(b.x, b.r, b.z, 36, '#ffb347'); burst(b.x, b.r, b.z, 18, '#6b5a3a');
     for (let i = 0; i < 24; i++) flame(b.x + (Math.random() - 0.5) * 2.5, Math.random() * 2.2, b.z + (Math.random() - 0.5) * 1.5);
     for (const en of s.enemies) {
@@ -953,10 +1234,10 @@
     const dir = Math.random() < 0.5 ? 1 : -1;
     if (Math.random() < 0.5) {
       // bat: glides across the upper field
-      state.critters.push({ kind: 'bat', reward, x: -16 * dir, baseY: 3.2 + Math.random() * 1.6, y: 3.5, z: 7 + Math.random() * 7, vx: dir * (2.4 + Math.random() * 1.2), t: 0, hit: 0 });
+      state.critters.push({ kind: 'bat', reward, x: -16 * dir, baseY: 3.2 + Math.random() * 1.6, y: 3.5, z: 7 + Math.random() * 7, vx: dir * (2.4 + Math.random() * 1.2), t: 0, hit: 0, sndT: 0 });
     } else {
       // rat: scurries along the ground, close in
-      state.critters.push({ kind: 'rat', reward, x: -14 * dir, baseY: 0.15, y: 0.15, z: 2 + Math.random() * 2.5, vx: dir * (1.8 + Math.random() * 1.2), t: 0, hit: 0 });
+      state.critters.push({ kind: 'rat', reward, x: -14 * dir, baseY: 0.15, y: 0.15, z: 2 + Math.random() * 2.5, vx: dir * (1.8 + Math.random() * 1.2), t: 0, hit: 0, sndT: 0 });
     }
   }
   // Is a world point inside a tree's trunk or canopy?
@@ -1006,7 +1287,7 @@
         const tx = (Math.random() - 0.5) * 2.4, ty = 0.8 + Math.random() * 1.6, tz = WALL_Z;
         const dx = tx - sx, dy = ty - sy, dz = tz - sz;
         const speed = 9.5 + Math.random() * 2, T = Math.hypot(dx, dz) / speed;
-        state.incoming.push({ x: sx, y: sy, z: sz, vx: dx / T, vz: dz / T, vy: dy / T + 0.5 * GRAVITY * T, life: 0 });
+        state.incoming.push({ x: sx, y: sy, z: sz, vx: dx / T, vz: dz / T, vy: dy / T + 0.5 * GRAVITY * T, life: 0 }); SFX.enemyLoose(sx, sz);
         en.cd = en.cdBase * (0.75 + Math.random() * 0.5);
         en.recoil = 0.25;
       }
@@ -1023,7 +1304,7 @@
   }
   function updateRange(dt) {
     const s = state;
-    if (s.reload > 0) { s.reload -= dt; if (s.reload <= 0) buzz([12, 40, 20]); }
+    if (s.reload > 0) { s.reload -= dt; if (s.reload <= 0) { buzz([12, 40, 20]); SFX.recock(); } }
     if (s.shake > 0) s.shake -= dt * 3;
     for (const t of s.targets) {
       if (t.kind === 'static') continue;
@@ -1035,7 +1316,7 @@
       a.life += dt;
       a.vy -= GRAVITY * dt;
       a.x += a.vx * dt; a.y += a.vy * dt; a.z += a.vz * dt;
-      if (a.y <= 0) { a.dead = true; s.stuck.push({ x: a.x, z: a.z, t: 0, yaw: Math.atan2(a.vx, a.vz) }); continue; }
+      if (a.y <= 0) { a.dead = true; s.stuck.push({ x: a.x, z: a.z, t: 0, yaw: Math.atan2(a.vx, a.vz) }); SFX.hit('ground', a.x, a.z); continue; }
       for (const t of s.targets) {
         if (Math.abs(a.z - t.z) < 0.45 && Math.hypot(a.x - t.x, a.y - t.y) < t.r) {
           const pts = scoreTarget(t, a.x, a.y);
@@ -1044,7 +1325,7 @@
           floatText(t.x, t.y + t.r + 0.3, t.z, pts >= 10 ? pts + '  Bullseye' : String(pts));
           burst(a.x, a.y, a.z, pts >= 10 ? 14 : 6, pts >= 10 ? '#f0c052' : '#e8dcc2');
           s.stuck.push({ x: a.x, y: a.y, z: t.z - 0.2, t: 0, yaw: 0, inTarget: true, life: 6 });
-          a.dead = true; buzz(pts >= 10 ? [20, 20, 40] : 25); break;
+          a.dead = true; buzz(pts >= 10 ? [20, 20, 40] : 25); SFX.hit('target', t.x, t.z); break;
         }
       }
     }
@@ -1123,6 +1404,35 @@
     if (!from || life >= LAUNCH_BLEND || ride) return p;
     let k = life / LAUNCH_BLEND; k = k * k * (3 - 2 * k);
     return { sx: from.x + (p.sx - from.x) * k, sy: from.y + (p.sy - from.y) * k, s: p.s };
+  }
+  // Continuous sound levels, computed once per frame from the world
+  function updateSound(real) {
+    const s = state;
+    if (!SFX.ok()) return;
+    // string tension while aiming
+    if (s.aim && s.reload <= 0 && !ride) { const sp = (s.aim.moved || 0) / Math.max(0.001, real); s.aim.moved = 0; SFX.setDraw(1, sp); } else SFX.setDraw(0, 0);
+    // flight: loudest bolt in the air, scaled by how close it is
+    let fl = 0; for (const a of s.arrows) fl = Math.max(fl, 1 / (1 + a.z * a.z / 80)); if (ride) fl = Math.max(fl, 0.9);
+    SFX.setFlight(fl);
+    // fire: sum of burning things, nearest weighted most
+    let fire = 0, fx = 0, fz = 0;
+    const addF = (x, z, w) => { const k = w / (1 + (x * x + z * z) / 90); fire += k; fx += x * k; fz += z * k; };
+    for (const a of s.arrows) if (a.fire) addF(a.x, a.z, 0.5);
+    for (const en of s.enemies) if (en.burning > 0 && !en.dying) addF(en.x, en.z, 0.8);
+    for (const tr of s.trees) if (tr.burning > 0) addF(tr.x, tr.z, tr.type === 'bush' ? 0.7 : 1.2);
+    for (const bl of s.blasts) addF(bl.x, bl.z, 1.5);
+    for (const inc of s.incoming) addF(inc.x, inc.z, 0.4);
+    if (isCamp()) for (const pr of CAMP_PROPS) if (pr.kind === 'torch' || pr.kind === 'brazier') addF(pr.x, pr.z, pr.kind === 'brazier' ? 0.35 : 0.2);
+    if (s.arrowType === 'fire' && s.fireAmmo > 0) fire += 0.12;
+    fire = Math.min(1, fire); if (fire > 0.01) { fx /= Math.max(0.001, fire); }
+    SFX.setFire(fire, fx, fz);
+    // werewolves: only audible inside ~18m, louder as they close
+    let wl = 0, wx = 0, wn = 0;
+    for (const en of s.enemies) if (en.wolf && !en.dying && en.z < 18) { const k = Math.max(0, 1 - en.z / 18); wl += k * k; wx += en.x * k; wn += k; }
+    SFX.setWolves(Math.min(1, wl), wn ? wx / wn : 0);
+    // ambience by stage
+    const kind = !s.running ? null : (s.level === 1 ? 'field' : s.level === 2 ? 'forest' : s.level === 3 ? 'range' : s.level === 4 ? 'camp' : s.level === 5 ? 'raid' : 'citadel');
+    SFX.ambience(kind);
   }
   function render() {
     const s = state;
@@ -2618,6 +2928,7 @@
     document.getElementById('overBest').textContent = 'Best: ' + best;
     hud.style.display = 'none'; overScr.classList.remove('hidden');
   }
+  document.addEventListener('pointerdown', () => SFX.init(), { once: true });
   document.getElementById('startBtn').addEventListener('click', () => startGame(1));
   document.getElementById('forestBtn').addEventListener('click', () => startGame(2));
   document.getElementById('rangeBtn').addEventListener('click', () => startGame(3));
@@ -2685,6 +2996,7 @@
       if (gyro.on && !pan && !lookDir && state.running && !paused && !ride) { const gy = gyroYaw(); if (gy != null) camYawTarget = gy; }
       camYaw += (camYawTarget - camYaw) * Math.min(1, real * 9);
       if (ride) { updateRide(real); dt = real * (ride && ride.phase === 'fly' ? RIDE_SLOW : RIDE_HOLD_SLOW); }
+      updateSound(real);
       if (state.running && !paused) {
         if (state.atCooldown > 0) { state.atCooldown -= real; if (state.atCooldown <= 0) { state.atCooldown = 0; updateAtBtn(); } }
         update(dt);
