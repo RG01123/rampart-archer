@@ -458,11 +458,16 @@
       vy: v * Math.sin(pitch),
     };
   }
+  // Where a bolt leaves the wall: in front of the eye along the current look direction
+  function launchOrigin() {
+    const d = WALL_Z + Z0;
+    return { x: camX + Math.sin(camYaw) * d, z: -Z0 + Math.cos(camYaw) * d };
+  }
   function landingPoint(vel) {
     // Solve y(t) = EYE_H - 0.1 + vy t - g t^2 / 2 = 0
-    const y0 = EYE_H - 0.1;
+    const y0 = EYE_H - 0.1, o = launchOrigin();
     const t = (vel.vy + Math.sqrt(vel.vy * vel.vy + 2 * GRAVITY * y0)) / GRAVITY;
-    return { x: vel.vx * t, z: WALL_Z + vel.vz * t, t };
+    return { x: o.x + vel.vx * t, z: o.z + vel.vz * t, t };
   }
   function fire(vel) {
     if (state.level === 3) { if (state.bolts <= 0) return; state.bolts--; remainEl.textContent = state.bolts; }
@@ -475,7 +480,8 @@
       const yaw = vel.yaw + deg * Math.PI / 180;
       const hv = Math.hypot(vel.vx, vel.vz);
       const tip = bowG ? { x: bowG.tip.x, y: bowG.tip.y } : null;
-      const arrow = { x: 0, y: EYE_H - 0.1, z: WALL_Z, vx: hv * Math.sin(yaw), vy: vel.vy, vz: hv * Math.cos(yaw), life: 0, fire: flaming, silver, tip };
+      const o = launchOrigin();
+      const arrow = { x: o.x, y: EYE_H - 0.1, z: o.z, vx: hv * Math.sin(yaw), vy: vel.vy, vz: hv * Math.cos(yaw), life: 0, fire: flaming, silver, tip };
       state.arrows.push(arrow); if (deg === 0) center = arrow;
     }
     if (state.atArmed && center && !ride) {
@@ -498,7 +504,8 @@
   // the game loop turns that into camYawTarget once per frame, so sensor spam can't stall anything.
   const gyro = { on: false, raw: null, zero: null, bound: false };
   function onOrient(e) {
-    const a = e.webkitCompassHeading != null ? -e.webkitCompassHeading : e.alpha;
+    // compass heading grows clockwise (turning right); alpha grows counter-clockwise, so it's negated
+    const a = e.webkitCompassHeading != null ? e.webkitCompassHeading : (e.alpha == null ? null : -e.alpha);
     if (a == null) return;
     gyro.raw = a * Math.PI / 180;
     if (gyro.zero == null) gyro.zero = gyro.raw;
@@ -809,7 +816,8 @@
   const RIDE_SLOW = 0.22, RIDE_HOLD_SLOW = 0.1, RIDE_BACK = 2.4, RIDE_UP = 0.7;
   // Simulate the shot against the world as it is now. Returns what it would hit, or null.
   function predictShot(vel) {
-    let x = 0, y = EYE_H - 0.1, z = WALL_Z, vy = vel.vy; const dt = 1 / 90;
+    const o = launchOrigin();
+    let x = o.x, y = EYE_H - 0.1, z = o.z, vy = vel.vy; const dt = 1 / 90;
     for (let i = 0; i < 500 && y > 0; i++) {
       vy -= GRAVITY * dt; x += vel.vx * dt; y += vy * dt; z += vel.vz * dt;
       if (state.level === 3) {
@@ -1217,7 +1225,8 @@
         const n = 16;
         for (let i = 1; i <= n; i++) {
           const t = lp.t * i / (n + 1);
-          const q = launchBlend(project(vel.vx * t, EYE_H - 0.1 + vel.vy * t - GRAVITY * t * t / 2, WALL_Z + vel.vz * t), t);
+          const o = launchOrigin();
+          const q = launchBlend(project(o.x + vel.vx * t, EYE_H - 0.1 + vel.vy * t - GRAVITY * t * t / 2, o.z + vel.vz * t), t);
           ctx.beginPath(); ctx.arc(q.sx, q.sy, 3.2 - 1.2 * i / n, 0, 6.28); ctx.fill();
         }
       }
@@ -1559,7 +1568,8 @@
 
   // Citadel aim preview: simulate the shot against the cliffs, draw the path it will really take.
   function drawCitadelPreview(vel) {
-    let x = 0, y = EYE_H - 0.1, z = WALL_Z, vy = vel.vy; const dt = 1 / 60;
+    const o = launchOrigin();
+    let x = o.x, y = EYE_H - 0.1, z = o.z, vy = vel.vy; const dt = 1 / 60;
     const path = []; let end = null, endKind = 'ground';
     for (let i = 0; i < 400; i++) {
       vy -= GRAVITY * dt; x += vel.vx * dt; y += vy * dt; z += vel.vz * dt;
@@ -1567,7 +1577,7 @@
       let hit = false;
       if (i > 15) for (const L of LEDGES) if (x > L.x0 && x < L.x1 && z > L.z - 0.4 && z < L.z + L.d && y < L.y) { end = { x, y, z }; endKind = (z < L.z + 0.2 || vy > 0) ? 'face' : 'top'; hit = true; break; }
       if (hit) break;
-      if (i % 5 === 0) path.push({ x, y, z });
+      if (i % 5 === 0) path.push({ x, y, z, t: (i + 1) * dt });
     }
     if (!end) end = { x, y, z };
     // is a world point hidden behind a nearer cliff from the wall's viewpoint?
@@ -1581,7 +1591,7 @@
       return false;
     };
     for (let i = 0; i < path.length; i++) {
-      const pt = path[i], q = project(pt.x, pt.y, pt.z);
+      const pt = path[i], q = launchBlend(project(pt.x, pt.y, pt.z), pt.t);
       ctx.fillStyle = hidden(pt.x, pt.y, pt.z) ? 'rgba(240,192,82,.18)' : 'rgba(240,192,82,.55)';
       ctx.beginPath(); ctx.arc(q.sx, q.sy, 3.4 - 1.4 * i / path.length, 0, 6.28); ctx.fill();
     }
