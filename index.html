@@ -50,7 +50,17 @@
   #hud .firebtn[aria-pressed="true"] { border-color: #ff8a2a; color: #ffb347; box-shadow: 0 0 16px rgba(255,138,42,.55); }
   #hud .firebtn:disabled { opacity: .45; }
   #hud .barrelbtn { left: auto; right: 14px; }
-  #hud.range .bottom, #hud.range .firebtn, #hud.range .buffs { display: none; }
+  #hud .look { position: absolute; top: 50%; transform: translateY(-50%); width: 40px; height: 72px; pointer-events: auto; background: rgba(10,8,20,.35); color: var(--ui); border: 1.5px solid rgba(244,234,214,.25); font: 700 1.8rem Georgia, serif; line-height: 1; touch-action: none; -webkit-user-select: none; user-select: none; }
+  #hud #lookL { left: 0; border-left: 0; border-radius: 0 12px 12px 0; }
+  #hud #lookR { right: 0; border-right: 0; border-radius: 12px 0 0 12px; }
+  #hud .look:active { background: rgba(240,192,82,.25); }
+  #hud.ride .look { opacity: .15; }
+  #hud .atbtn { bottom: calc(136px + env(safe-area-inset-bottom, 0px)); width: 52px; height: 52px; font-size: 1.3rem; }
+  #hud .atbtn[aria-pressed="true"] { border-color: #cfe6ff; color: #cfe6ff; box-shadow: 0 0 16px rgba(207,230,255,.6); }
+  #hud .atbtn.cool { opacity: .35; }
+  #hud.ride .tl, #hud.ride .bottom, #hud.ride .firebtn, #hud.ride .buffs, #hud.ride .pause { opacity: .15; transition: opacity .25s; }
+  #hud.range .atbtn { display: flex; }
+  #hud.range .bottom, #hud.range #fireBtn, #hud.range #barrelBtn, #hud.range .buffs { display: none; }
   #hud .firebtn:focus-visible { outline: 2px solid var(--gold); }
   #hud .buffs { position: absolute; right: 14px; bottom: calc(136px + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
   #hud .buffs span { font: 700 .8rem "Cinzel", serif; padding: 6px 12px; border-radius: 999px; background: rgba(10,8,20,.6); border: 1.5px solid currentColor; }
@@ -62,13 +72,19 @@
   .screen .big { color: var(--gold); font-size: 2.6rem; font-weight: 700; margin: 10px 0 0; font-family: "Cinzel", serif; }
   .screen button { margin-top: 26px; font: 700 1.1rem "Cinzel", serif; letter-spacing: .06em; padding: 14px 34px; background: var(--gold); color: #2b1a05; border: 0; border-radius: 999px; cursor: pointer; box-shadow: 0 6px 18px rgba(240,192,82,.35); }
   .screen button:focus-visible { outline: 3px solid var(--ui); outline-offset: 3px; }
-  .screen button.secondary { margin-top: 12px; background: transparent; color: var(--ui); border: 1.5px solid rgba(244,234,214,.45); box-shadow: none; }
+  .screen button.secondary { margin-top: 10px; padding: 11px 28px; font-size: 1rem; background: transparent; color: var(--ui); border: 1.5px solid rgba(244,234,214,.45); box-shadow: none; }
   .screen button.link { margin-top: 18px; background: transparent; color: var(--ui-dim); border: 0; box-shadow: none; padding: 8px 12px; font-size: .9rem; text-decoration: underline; text-underline-offset: 4px; }
   .screen .howto { margin-top: 6px; max-width: 34ch; }
   .screen .howto p { font-size: .9rem; margin: 6px 0; }
   .screen > * { flex-shrink: 0; }
   .screen h1 { margin-top: auto; }
   .screen #howto, .screen #howBtn { margin-bottom: auto; }
+  .screen .gyrostatus { font-size: .8rem; min-height: 1.2em; margin: 4px 0 0; }
+  .screen button[aria-pressed="true"] { border-color: var(--gold); color: var(--gold); }
+  .screen .stagegrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 22px; width: min(100%, 360px); }
+  .screen .stagegrid button { padding: 12px 10px; }
+  .screen .stagegrid button { margin-top: 0; padding: 12px 10px; font-size: .95rem; }
+  .screen .stagegrid button.current { border-color: var(--gold); color: var(--gold); }
   .hidden { display: none !important; }
   @media (prefers-reduced-motion: reduce) { #banner, #hud .hp i { transition: none; } }
 </style>
@@ -95,6 +111,9 @@
     </div>
     <button class="firebtn" id="fireBtn" type="button" aria-pressed="false">🔥 <span id="fireCount">0</span></button>
     <button class="firebtn barrelbtn" id="barrelBtn" type="button">🛢 <span id="barrelCount">0</span></button>
+    <button class="firebtn atbtn" id="atBtn" type="button" aria-pressed="false" aria-label="Arrow time">⏱</button>
+    <button class="look" id="lookL" type="button" aria-label="Look left">‹</button>
+    <button class="look" id="lookR" type="button" aria-label="Look right">›</button>
     <div class="buffs" id="buffs"></div>
   </div>
 
@@ -104,6 +123,9 @@
     <button id="startBtn">Hold the wall</button>
     <button id="forestBtn" class="secondary">Enter the forest</button>
     <button id="rangeBtn" class="secondary">Target range</button>
+    <button id="campBtn" class="secondary">Siege camp</button>
+    <button id="raidBtn" class="secondary">Night raid</button>
+    <button id="citadelBtn" class="secondary">The citadel</button>
     <button id="howBtn" class="link" type="button" aria-expanded="false">How to play</button>
     <div id="howto" class="howto hidden">
       <p>Touch anywhere and slide: up raises the bow for distance, down lowers it for a flat, close shot. Sideways to aim. Release to loose. Aim for the head.</p>
@@ -111,6 +133,26 @@
       <p>Shoot the glowing things that dart across the field. Orange gives fire bolts, pale blue gives silver bolts that kill in one hit, gold gives a three-bolt volley.</p>
       <p>Barrels roll through when the pack is close. A fire bolt blows one up, and anything near it. Roll your own from the wall with the barrel button, two per wave.</p>
       <p>The target range gives you 20 bolts and a mix of still and moving targets. Rings score 10, 7, 5 and 3; moving targets count double.</p>
+      <p>The siege camp is a night raid lit by torches: the pack comes as black shapes with burning eyes. The pause button opens the stage menu at any time.</p>
+      <p>The citadel: archers hold the ledges at different ranges and loose flaming arrows at you. Shoot the arrows out of the air, or the archers themselves. Ledges block your bolts, so find the angle.</p>
+      <p>Look around: hold the edge arrows, or drag with two fingers. Tap the compass to face forward again. Aiming follows where you look.</p>
+      <p>Arrow time: tap the stopwatch to arm it, then shoot. If the bolt is going to connect, you ride it in slow motion.</p>
+    </div>
+  </div>
+
+  <div class="screen hidden" id="menu">
+    <h2>Stages</h2>
+    <button id="resumeBtn">Resume</button>
+    <button id="replayBtn" class="secondary">Replay this stage</button>
+    <button id="gyroBtn" class="secondary" aria-pressed="false">Gyro look: off</button>
+    <p id="gyroStatus" class="gyrostatus"></p>
+    <div class="stagegrid">
+      <button class="secondary" data-level="1">The field</button>
+      <button class="secondary" data-level="2">The forest</button>
+      <button class="secondary" data-level="4">Siege camp</button>
+      <button class="secondary" data-level="5">Night raid</button>
+      <button class="secondary" data-level="6">The citadel</button>
+      <button class="secondary" data-level="3">Target range</button>
     </div>
   </div>
 
@@ -167,13 +209,56 @@
   const AMBIENT_MIN = 0.04;
   const FIRE_RADIUS = 7;        // meters: reach of a fire bolt's light
   const TREE_BURN = 10;         // seconds a tree burns
+  const isDark = () => state && (state.level === 2 || state.level === 4 || state.level === 5);   // night stages with dynamic light
+  const isCitadel = () => state && state.level === 6;
+  // Ledges the archers stand on: x range, height, depth from the wall, thickness
+  const LEDGES = [
+    // tier 1: low outcrops near the wall, off to the sides
+    { x0: -11, x1: -6, y: 1.4, z: 7, d: 3 },
+    { x0: 6, x1: 11, y: 1.2, z: 6.5, d: 3 },
+    // tier 2
+    { x0: -7, x1: -2.5, y: 3.0, z: 12, d: 3.5 },
+    { x0: 2.5, x1: 7, y: 2.6, z: 11, d: 3.5 },
+    // tier 3
+    { x0: -13, x1: -8, y: 4.6, z: 17, d: 4 },
+    { x0: -1.5, x1: 3, y: 4.2, z: 17.5, d: 4 },
+    { x0: 8, x1: 13, y: 5.0, z: 18, d: 4 },
+    // tier 4
+    { x0: -5, x1: 0.5, y: 6.5, z: 24, d: 5 },
+    { x0: 4, x1: 10, y: 7.0, z: 25, d: 5 },
+    // tier 5: the high crag at the back
+    { x0: -2, x1: 4, y: 8.5, z: 31, d: 6 },
+  ];
+  const ARCHER_TYPES = {
+    bowman:  { hp: 1, h: 1.8, w: 0.8, score: 30, cd: 4.6, draw: 1.3, speed: 1.0 },
+    warlord: { hp: 3, h: 2.3, w: 1.1, score: 80, cd: 3.4, draw: 1.0, speed: 0.7 },
+  };
+  const isCamp = () => state && (state.level === 4 || state.level === 5);                        // siege camp and its darker variant
+  // Level 5 (night raid) is the camp with the lights turned down: shorter moonlight, dimmer fires, blacker everything.
+  const darkCfg = () => state.level === 5
+    ? { near: 3.5, far: 17, min: 0.012, fireMul: 0.6, glow: 0.55, bloom: 0.85, vig: 0.68 }
+    : { near: AMBIENT_NEAR, far: AMBIENT_FAR, min: AMBIENT_MIN, fireMul: 1, glow: 1, bloom: state.level === 4 ? 1.0 : 0.9, vig: 0.55 };
 
-  const horizonY = () => H * 0.36;
+  const horizonY = () => ride ? project(ride.cam.x + Math.sin(ride.cam.yaw) * 800, ride.cam.y, ride.cam.z + Math.cos(ride.cam.yaw) * 800).sy : H * 0.36;
   const focal = () => W * 0.95;
   let camX = 0, camY = 0;   // small eye offset for parallax, follows the aim
+  let ride = null;          // arrow-time state; when set, the camera is free
+  let camYaw = 0, camYawTarget = 0, lookDir = 0;   // the player's look direction along the wall
+  const LOOK_MAX = 60 * Math.PI / 180;
+  const viewYaw = () => ride ? ride.cam.yaw : camYaw;
   function project(x, y, z) {
-    const s = focal() / (z + Z0);
-    return { sx: W / 2 + (x - camX) * s, sy: horizonY() + (EYE_H + camY - y) * s, s };
+    if (!ride && Math.abs(camYaw) < 1e-4) {
+      const s = focal() / (z + Z0);
+      return { sx: W / 2 + (x - camX) * s, sy: H * 0.36 + (EYE_H + camY - y) * s, s, behind: z + Z0 < 0.08 };
+    }
+    const c = ride ? ride.cam : { x: camX, y: EYE_H + camY, z: -Z0, yaw: camYaw, pitch: 0 };
+    const dx = x - c.x, dy = y - c.y, dz = z - c.z;
+    const cy = Math.cos(c.yaw), sy = Math.sin(c.yaw);
+    const rx = dx * cy - dz * sy; let rz = dx * sy + dz * cy;
+    const cp = Math.cos(c.pitch), sp = Math.sin(c.pitch);
+    const ry = dy * cp - rz * sp; rz = dy * sp + rz * cp;
+    const s = focal() / Math.max(rz, 0.08);
+    return { sx: W / 2 + rx * s, sy: H * 0.36 - ry * s, s, behind: rz < 0.08 };
   }
 
   // ---------- Game state ----------
@@ -199,16 +284,24 @@
       reload: 0, shotsFired: 0, arrowType: 'normal', fireAmmo: 0,
       silver: 0, volley: 0, critters: [], critterTimer: 6 + Math.random() * 6,
       barrels: [], barrelTimer: 14 + Math.random() * 10, blasts: [], barrelAmmo: 0,
+      atArmed: false, atCooldown: 0,
       aim: null,  // { ax, ay, cx, cy }
       shake: 0,
-      level: 1, trees: [], targets: [], bolts: 0, rangeDone: false,
+      level: 1, trees: [], targets: [], bolts: 0, rangeDone: false, incoming: [], wallFlash: 0,
     };
   }
 
   // ---------- Waves ----------
   function buildWave(n) {
     const q = [];
-    if (state.level === 2) {
+    if (isCitadel()) {
+      const bowmen = 2 + n, warlords = Math.floor(n / 2);
+      for (let i = 0; i < bowmen; i++) q.push('bowman');
+      for (let i = 0; i < warlords; i++) q.push('warlord');
+      for (let i = q.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [q[i], q[j]] = [q[j], q[i]]; }
+      return q;
+    }
+    if (isDark()) {
       const stalkers = 3 + n * 2, scouts = Math.max(1, n - 1) * 2, alphas = Math.floor(n / 2);
       for (let i = 0; i < stalkers; i++) q.push('stalker');
       for (let i = 0; i < scouts; i++) q.push('scout');
@@ -244,6 +337,21 @@
     for (let i = 0; i < 14; i++) state.trees.push({ x: side(i) * (3 + R() * 11), z: 3 + R() * 34, h: 0.6 + R() * 0.5, w: 0.6 + R() * 0.4, type: 'stump', seed: R() * 7, burning: 0, charred: false });
     state.trees.sort((a, b) => b.z - a.z);
   }
+  function enterCamp(variant) {
+    state.level = variant || 4;
+    state.trees = [];
+    const R = Math.random;
+    const mk = (x, z, h, w, type, cf) => state.trees.push({ x, z, h, w, type, cf: cf || 0.35, seed: R() * 7, burning: 0, charred: false });
+    const side = i => (i % 2 ? 1 : -1);
+    // tall pines framing the view at the edges, a few mid, a dense far wall
+    for (let i = 0; i < 4; i++) mk(side(i) * (4.5 + R() * 2.0), 0.3 + R() * 1.0, 15 + R() * 4, 1.0 + R() * 0.5, 'pine', 0.5);
+    for (let i = 0; i < 6; i++) mk(side(i) * (5 + R() * 5), 1.5 + R() * 4, 10 + R() * 4, 0.8 + R() * 0.4, 'pine', 0.45);
+    for (let i = 0; i < 14; i++) mk(side(i) * (6 + R() * 10), 6 + R() * 10, 6 + R() * 3, 0.6 + R() * 0.4, 'pine');
+    for (let i = 0; i < 60; i++) mk(side(i) * (5 + R() * 14), 18 + R() * 30, 5 + R() * 4, 0.5 + R() * 0.5, 'pine');
+    const nb = state.level === 5 ? 4 : 10, bs = state.level === 5 ? 0.7 : 1;
+    for (let i = 0; i < nb; i++) state.trees.push({ x: (R() * 2 - 1) * 14, z: 5 + R() * 28, h: (0.8 + R() * 0.6) * bs, w: (1.0 + R() * 1.0) * bs, type: 'bush', seed: R() * 7, burning: 0, charred: false });
+    state.trees.sort((a, b) => b.z - a.z);
+  }
   function enterRange() {
     state.level = 3;
     state.bolts = RANGE_BOLTS; state.rangeDone = false;
@@ -264,6 +372,7 @@
     showBanner('20 bolts', 1600);
   }
   function endRange() {
+    endRide();
     state.rangeDone = true; state.running = false; state.aim = null;
     if (state.score > rangeBest) { rangeBest = state.score; try { localStorage.setItem('rampart-range-best', String(rangeBest)); } catch (e) {} }
     lastLevel = 3;
@@ -272,7 +381,7 @@
     document.getElementById('overScore').textContent = state.score;
     document.getElementById('overBest').textContent = 'Best: ' + rangeBest;
     document.getElementById('againBtn').textContent = 'Shoot again';
-    document.getElementById('switchBtn').textContent = 'Back to the field';
+    document.getElementById('switchBtn').textContent = 'Choose a stage';
     hud.style.display = 'none'; overScr.classList.remove('hidden');
   }
   // Score a bolt against a target face: 10 / 7 / 5 / 3 by ring, doubled for moving targets.
@@ -299,7 +408,22 @@
     updateFireBtn();
     showBanner('Wave ' + state.wave);
   }
+  function spawnArcher(type) {
+    const t = ARCHER_TYPES[type];
+    // pick the ledge with the fewest archers on it (ties broken at random)
+    const counts = LEDGES.map((L, i) => state.enemies.filter(e => e.archer && !e.dying && e.ledge === i).length);
+    const minC = Math.min(...counts); const open = LEDGES.map((L, i) => i).filter(i => counts[i] === minC);
+    const li = open[Math.floor(Math.random() * open.length)], L = LEDGES[li];
+    const cdMul = Math.max(0.55, 1 - (state.wave - 1) * 0.06);
+    state.enemies.push({
+      type, archer: true, ledge: li, hp: t.hp, maxHp: t.hp, x: L.x0 + 0.6 + Math.random() * (L.x1 - L.x0 - 1.2), z: L.z - 0.05, baseY: L.y,
+      w: t.w, h: t.h, score: t.score, dmg: 1, dying: 0, hit: 0, bob: Math.random() * 6.28, speedMul: 1, veer: 0, tilt: 0, speed: t.speed,
+      dir: Math.random() < 0.5 ? 1 : -1, cd: 1.5 + Math.random() * t.cd * cdMul, cdBase: t.cd * cdMul, drawLen: t.draw, drawT: 0, color: '#07060a', cloth: '#07060a',
+      stagger: 0, wolf: false, quad: false, rally: 0, howl: 0, lean: 0,
+    });
+  }
   function spawnEnemy(type) {
+    if (isCitadel()) return spawnArcher(type);
     const t = ENEMY_TYPES[type];
     if (t.howl) {
       // the alpha howls: everything alive on the field rallies for a few seconds
@@ -322,12 +446,13 @@
   function launchVelocity(aim) {
     // Slide up = raise the bow (more pitch), slide down = lower it. Slide sideways = yaw.
     const dy = aim.cy - aim.ay;
-    const yaw = Math.max(-1, Math.min(1, (aim.cx - aim.ax) / (W * 0.42))) * MAX_YAW;
+    const yawRel = Math.max(-1, Math.min(1, (aim.cx - aim.ax) / (W * 0.42))) * MAX_YAW;
+    const yaw = camYaw + yawRel;
     let pitch = PITCH_DEFAULT - (dy / (H * 0.3)) * (32 * Math.PI / 180);
     pitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, pitch));
     const v = ARROW_SPEED;
     return {
-      pitch, yaw,
+      pitch, yaw, yawRel,
       vx: v * Math.cos(pitch) * Math.sin(yaw),
       vz: v * Math.cos(pitch) * Math.cos(yaw),
       vy: v * Math.sin(pitch),
@@ -345,11 +470,18 @@
     if (flaming) { state.fireAmmo--; if (state.fireAmmo <= 0) state.arrowType = 'normal'; updateFireBtn(); }
     const silver = state.silver > 0; if (silver) state.silver--;
     const spread = state.volley > 0 ? [-6, 0, 6] : [0]; if (state.volley > 0) state.volley--;
+    let center = null;
     for (const deg of spread) {
       const yaw = vel.yaw + deg * Math.PI / 180;
       const hv = Math.hypot(vel.vx, vel.vz);
       const tip = bowG ? { x: bowG.tip.x, y: bowG.tip.y } : null;
-      state.arrows.push({ x: 0, y: EYE_H - 0.1, z: WALL_Z, vx: hv * Math.sin(yaw), vy: vel.vy, vz: hv * Math.cos(yaw), life: 0, fire: flaming, silver, tip });
+      const arrow = { x: 0, y: EYE_H - 0.1, z: WALL_Z, vx: hv * Math.sin(yaw), vy: vel.vy, vz: hv * Math.cos(yaw), life: 0, fire: flaming, silver, tip };
+      state.arrows.push(arrow); if (deg === 0) center = arrow;
+    }
+    if (state.atArmed && center && !ride) {
+      const hit = predictShot(vel);
+      if (hit) { state.atArmed = false; startRide(center, hit); updateAtBtn(); }
+      else showBanner('Nothing in the path', 900);
     }
     updateBuffs();
     state.reload = 0.35;
@@ -362,13 +494,60 @@
   const TICK_PX = 14;   // slide distance between ratchet ticks
 
   // ---------- Input ----------
+  // ---- Gyro look (opt-in). The orientation handler only records the latest heading;
+  // the game loop turns that into camYawTarget once per frame, so sensor spam can't stall anything.
+  const gyro = { on: false, raw: null, zero: null, bound: false };
+  function onOrient(e) {
+    const a = e.webkitCompassHeading != null ? -e.webkitCompassHeading : e.alpha;
+    if (a == null) return;
+    gyro.raw = a * Math.PI / 180;
+    if (gyro.zero == null) gyro.zero = gyro.raw;
+  }
+  function setGyroStatus(t) { const el = document.getElementById('gyroStatus'); if (el) el.textContent = t; }
+  async function enableGyro() {
+    try {
+      if (typeof DeviceOrientationEvent === 'undefined') { setGyroStatus('No motion sensor available here.'); return false; }
+      if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+        const r = await Promise.race([DeviceOrientationEvent.requestPermission(), new Promise(res => setTimeout(() => res('timeout'), 4000))]);
+        if (r !== 'granted') { setGyroStatus(r === 'timeout' ? 'No answer from the motion permission prompt. Try the standalone file.' : 'Motion access was refused. Edge arrows and two-finger drag still work.'); return false; }
+      }
+      if (!gyro.bound) { window.addEventListener('deviceorientation', onOrient, true); gyro.bound = true; }
+      gyro.zero = null; gyro.raw = null;
+      setTimeout(() => { if (gyro.on && gyro.raw == null) setGyroStatus('Sensor is silent. This frame may block motion; the standalone file should work.'); }, 2000);
+      setGyroStatus('Turn your phone to look. Tap the compass to recenter.');
+      return true;
+    } catch (err) { setGyroStatus('Motion unavailable here.'); return false; }
+  }
+  function gyroYaw() {
+    if (!gyro.on || gyro.raw == null || gyro.zero == null) return null;
+    let d = gyro.raw - gyro.zero; d = Math.atan2(Math.sin(d), Math.cos(d));
+    return Math.max(-LOOK_MAX, Math.min(LOOK_MAX, d));
+  }
+  document.getElementById('gyroBtn').addEventListener('click', async e => {
+    const b = e.currentTarget;
+    if (gyro.on) { gyro.on = false; b.textContent = 'Gyro look: off'; b.setAttribute('aria-pressed', 'false'); setGyroStatus(''); return; }
+    const ok = await enableGyro();
+    gyro.on = ok; b.textContent = ok ? 'Gyro look: on' : 'Gyro look: off'; b.setAttribute('aria-pressed', ok ? 'true' : 'false');
+  });
+  let pan = null;        // two-finger look: { id, x0, yaw0 }
+  let lastCompass = null;
   canvas.addEventListener('pointerdown', e => {
-    if (!state.running || paused) return;
+    if (!state.running || paused || ride) return;
     canvas.setPointerCapture(e.pointerId);
+    // tap on the compass: recenter the view
+    if (lastCompass && Math.hypot(e.clientX - lastCompass.cx, e.clientY - lastCompass.cy) < lastCompass.r * 1.2) { camYawTarget = 0; if (gyro.raw != null) gyro.zero = gyro.raw; buzz(10); return; }
+    // a second finger while aiming turns the shot into a look-around drag
+    if (state.aim && !pan) { pan = { id: e.pointerId, x0: e.clientX, yaw0: camYawTarget }; state.aim = null; return; }
+    if (pan) return;
     state.aim = { ax: e.clientX, ay: e.clientY, cx: e.clientX, cy: e.clientY, id: e.pointerId, tickX: e.clientX, tickY: e.clientY };
     if (state.reload <= 0) buzz(18);
   });
   canvas.addEventListener('pointermove', e => {
+    if (pan && e.pointerId === pan.id) {
+      // drag the scene: pull it left to look right
+      camYawTarget = Math.max(-LOOK_MAX, Math.min(LOOK_MAX, pan.yaw0 - (e.clientX - pan.x0) / W * 1.4));
+      return;
+    }
     if (!state.aim || e.pointerId !== state.aim.id) return;
     state.aim.cx = e.clientX; state.aim.cy = e.clientY;
     // ratchet ticks as the aim moves
@@ -376,10 +555,18 @@
     if (dx * dx + dy * dy >= TICK_PX * TICK_PX) { state.aim.tickX = e.clientX; state.aim.tickY = e.clientY; buzz(6); }
   });
   function release(e) {
+    if (pan && e.pointerId === pan.id) { pan = null; return; }
     if (!state.aim || e.pointerId !== state.aim.id) return;
     const vel = launchVelocity(state.aim);
     if (state.reload <= 0) { fire(vel); buzz(40); }
     state.aim = null;
+  }
+  // edge look buttons: hold to turn
+  for (const [id, d] of [['lookL', -1], ['lookR', 1]]) {
+    const b = document.getElementById(id);
+    const stop = () => { if (lookDir === d) lookDir = 0; };
+    b.addEventListener('pointerdown', e => { e.preventDefault(); lookDir = d; b.setPointerCapture(e.pointerId); });
+    b.addEventListener('pointerup', stop); b.addEventListener('pointercancel', stop); b.addEventListener('lostpointercapture', stop);
   }
   canvas.addEventListener('pointerup', release);
   canvas.addEventListener('pointercancel', release);
@@ -407,6 +594,7 @@
     for (const en of s.enemies) {
       if (en.dying) { en.dying += dt; continue; }
       if (en.hit > 0) en.hit -= dt;
+      if (en.archer) { updateArcher(en, dt); continue; }
       if (en.burning > 0) {
         en.burning -= dt; en.burnTick -= dt;
         if (en.burnTick <= 0) {
@@ -414,7 +602,7 @@
           if (en.hp <= 0) { killEnemy(en, false); continue; }
         }
         // flames pour off the body
-        if (Math.random() < 0.6) flame(en.x + (Math.random() - 0.5) * en.w * 0.6, Math.random() * en.h, en.z);
+        if (Math.random() < 0.6) flame(en.x + (Math.random() - 0.5) * en.w * 0.6, (en.baseY || 0) + Math.random() * en.h, en.z);
         for (const b of s.barrels) if (!b.dead && Math.abs(b.x - en.x) < 1.0 && Math.abs(b.z - en.z) < 1.0) explodeBarrel(b);
         // spread to neighbours
         for (const o of s.enemies) {
@@ -459,6 +647,24 @@
     }
     s.enemies = s.enemies.filter(en => !(en.dying > 1.0));
 
+    // Incoming flaming arrows (citadel)
+    for (const inc of s.incoming) {
+      inc.life += dt;
+      inc.vy -= GRAVITY * dt;
+      inc.x += inc.vx * dt; inc.y += inc.vy * dt; inc.z += inc.vz * dt;
+      if (Math.random() < 0.8) flame(inc.x, inc.y, inc.z, true);
+      if (inc.z <= WALL_Z + 0.3) {
+        inc.dead = true;
+        if (Math.abs(inc.x) < 3 && inc.y < 3.2 && inc.y > -0.5) {
+          s.hp = Math.max(0, s.hp - 1); s.shake = 1; s.wallFlash = 0.35; updateHP();
+          burst(inc.x, Math.max(0.3, inc.y), WALL_Z + 0.3, 16, '#ff8a2a'); buzz([40, 30, 40]);
+          if (s.hp <= 0) { gameOver(); return; }
+        }
+      } else if (inc.y <= 0) { inc.dead = true; s.stuck.push({ x: inc.x, z: inc.z, t: 0, yaw: Math.atan2(inc.vx, inc.vz), fire: true }); }
+    }
+    s.incoming = s.incoming.filter(i => !i.dead && i.life < 8);
+    if (s.wallFlash > 0) s.wallFlash -= dt;
+
     // Burning trees
     for (const tr of s.trees) {
       if (tr.burning <= 0) continue;
@@ -484,11 +690,11 @@
       a.x += a.vx * dt; a.y += a.vy * dt; a.z += a.vz * dt;
       if (a.y <= 0) {
         a.dead = true; s.stuck.push({ x: a.x, z: a.z, t: 0, yaw: Math.atan2(a.vx, a.vz), fire: a.fire });
-        if (a.fire && s.level === 2) for (const tr of s.trees) if (tr.type === 'bush' && Math.abs(a.x - tr.x) < tr.w * 0.8 && Math.abs(a.z - tr.z) < 0.9) { igniteTree(tr); break; }
+        if (a.fire && isDark()) for (const tr of s.trees) if (tr.type === 'bush' && Math.abs(a.x - tr.x) < tr.w * 0.8 && Math.abs(a.z - tr.z) < 0.9) { igniteTree(tr); break; }
         continue;
       }
       // Trees are solid: a bolt sticks in the first one it reaches, shielding anything behind it
-      if (s.level === 2 && a.life >= LAUNCH_BLEND) {
+      if (isDark() && a.life >= LAUNCH_BLEND) {
         let blocked = false;
         if (a.fire) for (const tr of s.trees) if (tr.type === 'bush' && !tr.burning && !tr.charred && a.y < tr.h && Math.abs(a.x - tr.x) < tr.w * 0.8 && Math.abs(a.z - tr.z) < 0.6) igniteTree(tr);
         for (const tr of s.trees) {
@@ -502,11 +708,30 @@
         }
         if (blocked) continue;
       }
+      // Citadel: ledges are solid, and an incoming arrow can be shot out of the air
+      if (isCitadel() && a.life >= LAUNCH_BLEND) {
+        let stop = false;
+        for (const inc of s.incoming) {
+          if (inc.dead) continue;
+          if (Math.abs(a.x - inc.x) < 0.85 && Math.abs(a.y - inc.y) < 0.85 && Math.abs(a.z - inc.z) < 1.0) {
+            inc.dead = true; a.dead = true; stop = true;
+            burst(inc.x, inc.y, inc.z, 18, '#ffd37a'); burst(inc.x, inc.y, inc.z, 8, '#ff8a2a');
+            s.score += 5; scoreEl.textContent = s.score; floatText(inc.x, inc.y + 0.4, inc.z, '+5');
+            buzz([15, 20, 30]); break;
+          }
+        }
+        if (!stop) for (const L of LEDGES) {
+          if (a.x > L.x0 && a.x < L.x1 && a.z > L.z - 0.4 && a.z < L.z + L.d && a.y < L.y) {
+            a.dead = true; stop = true; s.stuck.push({ x: a.x, y: a.y, z: L.z - 0.4, t: 0, yaw: 0, inTree: true }); burst(a.x, a.y, a.z, 5, '#6a6e80'); break;
+          }
+        }
+        if (stop) continue;
+      }
       for (const en of s.enemies) {
         if (en.dying) continue;
-        const r = en.w * 0.55;
-        if (Math.abs(a.x - en.x) < r && Math.abs(a.z - en.z) < r + 0.35 && a.y >= 0 && a.y <= en.h) {
-          const head = a.y > en.h * 0.72;
+        const r = en.w * 0.55, b0 = en.baseY || 0;
+        if (Math.abs(a.x - en.x) < r && Math.abs(a.z - en.z) < r + 0.35 && a.y >= b0 && a.y <= b0 + en.h) {
+          const head = (a.y - b0) > en.h * 0.72;
           en.hp -= a.silver ? 99 : (head ? 2 : 1); en.hit = 0.15;
           if (a.silver) burst(en.x, a.y, en.z, 12, '#cfe6ff');
           burst(en.x, a.y, en.z, head ? 14 : 7, head ? '#f0c052' : '#b0291f');
@@ -571,10 +796,100 @@
     s.barrels = s.barrels.filter(b => !b.dead && Math.abs(b.x) < 18 && b.z < SPAWN_Z + 5);
     for (const bl of s.blasts) bl.t += dt;
     s.blasts = s.blasts.filter(bl => bl.t < 0.6);
+    if (isCamp() && Math.random() < dt * (s.level === 5 ? 9 : 14)) {
+      s.particles.push({ x: (Math.random() * 2 - 1) * 10, y: Math.random() * 3, z: 1 + Math.random() * 20, vx: (Math.random() - 0.5) * 0.4, vy: 0.3 + Math.random() * 0.5, t: 0, life: 2.5 + Math.random() * 2, color: Math.random() < 0.5 ? '#ff8a2a' : '#ffb347', r: 0.03 + Math.random() * 0.03, flame: true, ember: true });
+    }
     for (const st of s.stuck) st.t += dt;
     s.stuck = s.stuck.filter(st => st.t < 4);
-    for (const p of s.particles) { p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; if (!p.flame) p.vy -= 6 * dt; }
+    for (const p of s.particles) { p.t += dt; p.x += p.vx * dt + (p.ember ? Math.sin(p.t * 2 + p.z) * 0.3 * dt : 0); p.y += p.vy * dt; if (!p.flame) p.vy -= 6 * dt; }
     s.particles = s.particles.filter(p => p.t < p.life);
+  }
+
+  // ---------- Arrow time ----------
+  const RIDE_SLOW = 0.22, RIDE_HOLD_SLOW = 0.1, RIDE_BACK = 2.4, RIDE_UP = 0.7;
+  // Simulate the shot against the world as it is now. Returns what it would hit, or null.
+  function predictShot(vel) {
+    let x = 0, y = EYE_H - 0.1, z = WALL_Z, vy = vel.vy; const dt = 1 / 90;
+    for (let i = 0; i < 500 && y > 0; i++) {
+      vy -= GRAVITY * dt; x += vel.vx * dt; y += vy * dt; z += vel.vz * dt;
+      if (state.level === 3) {
+        for (const t of state.targets) if (Math.abs(z - t.z) < 0.45 && Math.hypot(x - t.x, y - t.y) < t.r) return { kind: 'target', o: t };
+        continue;
+      }
+      if (isDark() && i > 22) for (const tr of state.trees) if (treeHit(tr, x, y, z)) return null;
+      for (const b of state.barrels) if (!b.dead && Math.abs(x - b.x) < b.r + 0.15 && Math.abs(z - b.z) < b.r + 0.4 && y < b.r * 2.1) return { kind: 'barrel', o: b };
+      for (const en of state.enemies) {
+        if (en.dying) continue;
+        const r = en.w * 0.55;
+        const b0 = en.baseY || 0;
+        if (Math.abs(x - en.x) < r && Math.abs(z - en.z) < r + 0.35 && y >= b0 && y <= b0 + en.h) return { kind: 'enemy', o: en, head: (y - b0) > en.h * 0.72 };
+      }
+      for (const c of state.critters) if (!c.hit && Math.abs(x - c.x) < 0.75 && Math.abs(z - c.z) < 0.9 && Math.abs(y - c.y) < 0.7) return { kind: 'critter', o: c };
+    }
+    return null;
+  }
+  function rideTargetPoint() {
+    const t = ride.target, o = t.o;
+    if (t.kind === 'enemy') return o.dying ? null : { x: o.x, y: (o.baseY || 0) + (t.head ? o.h * 0.85 : o.h * 0.5), z: o.z };
+    if (t.kind === 'critter') return o.hit ? null : { x: o.x, y: o.y, z: o.z };
+    if (t.kind === 'barrel') return o.dead ? null : { x: o.x, y: o.r, z: o.z };
+    return { x: o.x, y: o.y, z: o.z };
+  }
+  function startRide(a, target) {
+    a.ride = true; a.tip = null; a.life = Math.max(a.life, LAUNCH_BLEND);
+    ride = { a, target, t: 0, phase: 'fly', hold: 0, holdLen: 0.5, hit: false, yaw0: camYaw,
+      cam: { x: 0, y: EYE_H, z: -Z0, yaw: camYaw, pitch: 0 } };
+    hud.classList.add('ride'); buzz([10, 20, 10]);
+  }
+  function endRide() {
+    if (!ride) return;
+    ride = null; hud.classList.remove('ride');
+    state.atCooldown = 5; updateAtBtn();
+  }
+  function updateRide(real) {
+    const a = ride.a; ride.t += real;
+    if (ride.phase === 'fly') {
+      if (a.dead || !state.arrows.includes(a)) {
+        ride.phase = 'impact'; ride.hit = a.y > 0.05; ride.holdLen = ride.hit ? 0.55 : 0.2;
+        if (ride.hit) { buzz(70); state.shake = Math.max(state.shake, 0.6); }
+        return;
+      }
+      // gentle homing so a target that stumbles sideways can't dodge a ride
+      const tp = rideTargetPoint();
+      const sp = Math.hypot(a.vx, a.vy, a.vz) || 1;
+      let dx = a.vx / sp, dy = a.vy / sp, dz = a.vz / sp;
+      if (tp) {
+        const ex = tp.x - a.x, ey = tp.y - a.y, ez = tp.z - a.z, ed = Math.hypot(ex, ey, ez) || 1;
+        const k = Math.min(1, real * RIDE_SLOW * 7);
+        dx += (ex / ed - dx) * k; dy += (ey / ed - dy) * k; dz += (ez / ed - dz) * k;
+        const n = Math.hypot(dx, dy, dz) || 1; dx /= n; dy /= n; dz /= n;
+        a.vx = dx * sp; a.vy = dy * sp; a.vz = dz * sp;
+      }
+      // chase camera: behind and above the bolt, looking along it with a bias toward the target
+      const want = { x: a.x - dx * RIDE_BACK, y: a.y - dy * RIDE_BACK + RIDE_UP, z: a.z - dz * RIDE_BACK };
+      let lx = dx, ly = dy, lz = dz;
+      if (tp) { const ex = tp.x - want.x, ey = tp.y - want.y, ez = tp.z - want.z, ed = Math.hypot(ex, ey, ez) || 1; lx = dx * 0.5 + ex / ed * 0.5; ly = dy * 0.5 + ey / ed * 0.5; lz = dz * 0.5 + ez / ed * 0.5; }
+      const wantYaw = Math.atan2(lx, lz), wantPitch = Math.atan2(ly, Math.hypot(lx, lz));
+      // whip out from the wall over the first third of a second, then track tightly
+      let k = Math.min(1, ride.t / 0.35); k = k * k * (3 - 2 * k);
+      if (ride.t < 0.35) {
+        ride.cam.x = want.x * k; ride.cam.y = EYE_H + (want.y - EYE_H) * k; ride.cam.z = -Z0 + (want.z + Z0) * k;
+        ride.cam.yaw = ride.yaw0 + (wantYaw - ride.yaw0) * k; ride.cam.pitch = wantPitch * k;
+      } else {
+        const f = 1 - Math.exp(-real * 16);
+        ride.cam.x += (want.x - ride.cam.x) * f; ride.cam.y += (want.y - ride.cam.y) * f; ride.cam.z += (want.z - ride.cam.z) * f;
+        ride.cam.yaw += (wantYaw - ride.cam.yaw) * f; ride.cam.pitch += (wantPitch - ride.cam.pitch) * f;
+      }
+    } else {
+      ride.hold += real;
+      if (ride.hold >= ride.holdLen) endRide();
+    }
+  }
+  function updateAtBtn() {
+    const b = document.getElementById('atBtn');
+    b.setAttribute('aria-pressed', state.atArmed ? 'true' : 'false');
+    b.disabled = state.atCooldown > 0 || !!ride;
+    b.classList.toggle('cool', state.atCooldown > 0);
   }
 
   const BARREL_R = 0.55, BLAST_RADIUS = 3.6;
@@ -602,7 +917,7 @@
       const d = Math.hypot(en.x - b.x, en.z - b.z);
       if (d < BLAST_RADIUS) { en.hp -= d < BLAST_RADIUS * 0.5 ? 4 : 2; en.hit = 0.2; ignite(en); if (en.hp <= 0) killEnemy(en, false); }
     }
-    if (s.level === 2) for (const tr of s.trees) if (tr.type !== 'stump' && Math.hypot(tr.x - b.x, tr.z - b.z) < 2.6) igniteTree(tr);
+    if (isDark()) for (const tr of s.trees) if (tr.type !== 'stump' && Math.hypot(tr.x - b.x, tr.z - b.z) < 2.6) igniteTree(tr);
     for (const o of s.barrels) if (o !== b && !o.dead && Math.hypot(o.x - b.x, o.z - b.z) < BLAST_RADIUS * 0.8) setTimeout(() => { if (!o.dead && state.barrels.includes(o)) explodeBarrel(o); }, 180);
     for (const c of s.critters) if (!c.hit && Math.hypot(c.x - b.x, c.z - b.z) < BLAST_RADIUS * 0.6 && c.y < 2.5) { c.hit = 0.01; }
   }
@@ -640,18 +955,50 @@
     en.dying = 0.01;
     const pts = en.score * (head ? 2 : 1);
     state.score += pts; scoreEl.textContent = state.score;
-    if (head) floatText(en.x, en.h, en.z, 'Headshot');
-    if (en.burning > 0) { en.burning = 0; burst(en.x, en.h * 0.5, en.z, 12, '#ff8a2a'); }
+    if (head) floatText(en.x, (en.baseY || 0) + en.h, en.z, 'Headshot');
+    if (en.burning > 0) { en.burning = 0; burst(en.x, (en.baseY || 0) + en.h * 0.5, en.z, 12, '#ff8a2a'); }
   }
   function ignite(en) {
     if (en.burning > 0 || en.dying) return;
     en.burning = BURN_TIME; en.burnTick = BURN_TICK * 0.6;
-    burst(en.x, en.h * 0.6, en.z, 16, '#ffb347');
+    burst(en.x, (en.baseY || 0) + en.h * 0.6, en.z, 16, '#ffb347');
   }
   function flame(x, y, z, small) {
     const c = Math.random() < 0.5 ? '#ff8a2a' : (Math.random() < 0.5 ? '#ffd166' : '#e8431f');
     state.particles.push({ x, y, z, vx: (Math.random() - 0.5) * 0.6, vy: 1.2 + Math.random() * 1.6, t: 0,
       life: small ? 0.3 + Math.random() * 0.2 : 0.45 + Math.random() * 0.35, color: c, r: (small ? 0.06 : 0.12) + Math.random() * 0.1, flame: true });
+  }
+  // Archers patrol their ledge, stop to draw (a glowing telegraph), and loose a flaming arrow at the wall.
+  function updateArcher(en, dt) {
+    const L = LEDGES[en.ledge];
+    en.bob += dt * 3;
+    if (en.burning > 0) {
+      en.burning -= dt; en.burnTick -= dt;
+      if (en.burnTick <= 0) { en.burnTick = BURN_TICK; en.hp -= 1; en.hit = 0.1; if (en.hp <= 0) { killEnemy(en, false); return; } }
+      if (Math.random() < 0.6) flame(en.x + (Math.random() - 0.5) * en.w * 0.6, en.baseY + Math.random() * en.h, en.z);
+    }
+    if (en.drawT > 0) {
+      en.drawT -= dt;
+      if (en.drawT <= 0) {
+        // loose: solve a ballistic arc from the bow to a point on the wall, with some spread
+        const sx = en.x, sy = en.baseY + en.h * 0.7, sz = en.z;
+        const tx = (Math.random() - 0.5) * 2.4, ty = 0.8 + Math.random() * 1.6, tz = WALL_Z;
+        const dx = tx - sx, dy = ty - sy, dz = tz - sz;
+        const speed = 9.5 + Math.random() * 2, T = Math.hypot(dx, dz) / speed;
+        state.incoming.push({ x: sx, y: sy, z: sz, vx: dx / T, vz: dz / T, vy: dy / T + 0.5 * GRAVITY * T, life: 0 });
+        en.cd = en.cdBase * (0.75 + Math.random() * 0.5);
+        en.recoil = 0.25;
+      }
+      return;
+    }
+    if (en.recoil > 0) en.recoil -= dt;
+    en.cd -= dt;
+    if (en.cd <= 0) { en.drawT = en.drawLen; return; }
+    // patrol
+    en.x += en.dir * en.speed * dt;
+    if (en.x < L.x0 + 0.5) { en.x = L.x0 + 0.5; en.dir = 1; }
+    if (en.x > L.x1 - 0.5) { en.x = L.x1 - 0.5; en.dir = -1; }
+    if (Math.random() < dt * 0.25) en.dir *= -1;
   }
   function updateRange(dt) {
     const s = state;
@@ -712,32 +1059,38 @@
   // ---------- Lighting (stage 2 only) ----------
   // Returns 0..1 brightness at a world point: moonlight falling off with distance, plus fire sources.
   function lightAt(x, y, z) {
-    if (state.level !== 2) return 1;
-    let l = AMBIENT_MIN + (1 - AMBIENT_MIN) * (1 - Math.min(1, Math.max(0, (z - AMBIENT_NEAR) / (AMBIENT_FAR - AMBIENT_NEAR))));
+    if (!isDark()) return 1;
+    const c = darkCfg();
+    let l = c.min + (1 - c.min) * (1 - Math.min(1, Math.max(0, (z - c.near) / (c.far - c.near))));
     for (const src of lightSources) {
       const dx = x - src.x, dy = y - src.y, dz = z - src.z;
       const d2 = dx * dx + dy * dy + dz * dz;
-      l += src.i / (1 + d2 / (FIRE_RADIUS * FIRE_RADIUS) * 9);
+      l += src.i * c.fireMul / (1 + d2 / (FIRE_RADIUS * FIRE_RADIUS) * 9);
     }
     return Math.min(1, l);
   }
   let lightSources = [];
   function collectLights() {
     lightSources = [];
-    if (state.level !== 2) return;
+    if (!isDark()) return;
     for (const a of state.arrows) if (a.fire) lightSources.push({ x: a.x, y: a.y, z: a.z, i: 1.4 });
     for (const en of state.enemies) if (en.burning > 0 && !en.dying) lightSources.push({ x: en.x, y: en.h * 0.6, z: en.z, i: 1.2 });
     for (const st of state.stuck) if (st.fire) lightSources.push({ x: st.x, y: st.y || 0.2, z: st.z, i: Math.max(0, 0.9 * (1 - st.t / 4)) });
     for (const tr of state.trees) if (tr.burning > 0) lightSources.push({ x: tr.x, y: tr.h * 0.6, z: tr.z, i: (tr.type === 'bush' ? 1.1 : 1.8) * Math.min(1, tr.burning / 2) });
-    for (const pr of FOREST_PROPS) if (pr.kind === 'tower') lightSources.push({ x: pr.x, y: pr.h * 0.85, z: pr.z, i: 0.7 });
+    for (const pr of propsFor()) {
+      if (pr.kind === 'tower') lightSources.push({ x: pr.x, y: pr.h * 0.85, z: pr.z, i: 0.7 });
+      else if (pr.kind === 'torch') lightSources.push({ x: pr.x, y: pr.h, z: pr.z, i: 1.3 + Math.sin(performance.now() / 110 + pr.z) * 0.15 });
+      else if (pr.kind === 'brazier') lightSources.push({ x: pr.x, y: pr.h + 0.3, z: pr.z, i: 1.7 + Math.sin(performance.now() / 90 + pr.x) * 0.2 });
+    }
     for (const bl of state.blasts) lightSources.push({ x: bl.x, y: 1, z: bl.z, i: 4 * (1 - bl.t / 0.6) });
   }
   // Warm pool of light on the ground under a fire source
   function drawGroundGlow(src) {
     const p = project(src.x, 0, src.z);
-    const r = Math.max(10, FIRE_RADIUS * 0.55 * p.s * src.i);
+    const k = darkCfg().glow;
+    const r = Math.max(10, FIRE_RADIUS * 0.55 * p.s * src.i * k);
     const g = ctx.createRadialGradient(p.sx, p.sy, 0, p.sx, p.sy, r);
-    g.addColorStop(0, 'rgba(255,150,60,' + (0.35 * src.i) + ')'); g.addColorStop(0.5, 'rgba(255,110,40,' + (0.14 * src.i) + ')'); g.addColorStop(1, 'rgba(255,80,20,0)');
+    g.addColorStop(0, 'rgba(255,150,60,' + (0.35 * src.i * k) + ')'); g.addColorStop(0.5, 'rgba(255,110,40,' + (0.14 * src.i * k) + ')'); g.addColorStop(1, 'rgba(255,80,20,0)');
     ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = g;
     ctx.beginPath(); ctx.ellipse(p.sx, p.sy, r, r * 0.42, 0, 0, 6.28); ctx.fill(); ctx.restore();
   }
@@ -746,7 +1099,7 @@
   // Screen position of a point in flight: blends from the bolt tip to its projected position over the first moments.
   function launchBlend(p, life, tip) {
     const from = tip || (bowG && bowG.tip);
-    if (!from || life >= LAUNCH_BLEND) return p;
+    if (!from || life >= LAUNCH_BLEND || ride) return p;
     let k = life / LAUNCH_BLEND; k = k * k * (3 - 2 * k);
     return { sx: from.x + (p.sx - from.x) * k, sy: from.y + (p.sy - from.y) * k, s: p.s };
   }
@@ -760,8 +1113,22 @@
 
     collectLights();
     if (s.running && s.level !== 3) remainEl.textContent = s.spawnQueue.length + s.enemies.filter(e => !e.dying).length;
+    const vyaw = viewYaw(), shifted = Math.abs(vyaw) > 1e-4;
+    if (shifted) { ctx.fillStyle = s.level === 3 ? '#8fb0c4' : (s.level === 6 ? '#161d2e' : (s.level === 2 ? '#0a1a24' : (s.level === 5 ? '#02040a' : (s.level === 4 ? '#070b14' : '#0d1030')))); ctx.fillRect(-20, -20, W + 40, H + 40); ctx.save(); ctx.translate(-Math.tan(vyaw) * focal() * 0.3, 0); }
     if (s.level === 3) {
       drawRangeBackdrop(hy);
+    } else if (s.level === 6) {
+      drawCitadelBackdrop(hy);
+    } else if (isCamp()) {
+      const night = s.level === 5;
+      drawCampBackdrop(hy, night);
+      const gnd = ctx.createLinearGradient(0, hy, 0, H);
+      if (night) { gnd.addColorStop(0, '#02040a'); gnd.addColorStop(0.4, '#040710'); gnd.addColorStop(1, '#0a0e1a'); }
+      else { gnd.addColorStop(0, '#070b14'); gnd.addColorStop(0.35, '#0b1020'); gnd.addColorStop(1, '#151a2a'); }
+      ctx.fillStyle = gnd; ctx.fillRect(-20, hy, W + 40, H - hy + 20);
+      drawCampPath(night);
+      for (const src of lightSources) drawGroundGlow(src);
+      ctx.fillStyle = night ? 'rgba(90,110,170,.035)' : 'rgba(120,150,200,.05)'; ctx.fillRect(-20, hy, W + 40, H * 0.1);
     } else if (s.level === 2) {
       // ---- Stage 2: forest at night ----
       drawForestBackdrop(hy);
@@ -790,14 +1157,20 @@
       for (let z = 4; z <= 44; z += 4) { const p = project(0, 0, z); ctx.beginPath(); ctx.moveTo(0, p.sy); ctx.lineTo(W, p.sy); ctx.stroke(); }
       for (let x = -12; x <= 12; x += 4) { const a = project(x, 0, 1), b = project(x, 0, 60); ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.stroke(); }
     }
+    if (shifted) ctx.restore();
 
     // Collect drawables, far to near
     const items = [];
     if (s.level === 3) for (const t of s.targets) items.push({ z: t.z, kind: 'target', o: t });
-    if (s.level === 2) {
+    if (s.level === 6) {
+      LEDGES.forEach((L, i) => items.push({ z: L.z, kind: 'ledge', o: Object.assign({ x: (L.x0 + L.x1) / 2, i }, L) }));
+      for (const fz of [5, 10, 16, 24, 32]) items.push({ z: fz, kind: 'fog', o: fz });
+      for (const inc of s.incoming) items.push({ z: inc.z, kind: 'incoming', o: inc });
+    }
+    if (isDark()) {
       for (const tr of s.trees) items.push({ z: tr.z, kind: 'tree', o: tr });
       for (const fz of [6, 10, 15, 21, 28, 36]) items.push({ z: fz, kind: 'fog', o: fz });
-      for (const pr of FOREST_PROPS) items.push({ z: pr.z, kind: 'prop', o: pr });
+      for (const pr of propsFor()) items.push({ z: pr.z, kind: 'prop', o: pr });
     }
     for (const en of s.enemies) items.push({ z: en.z, kind: 'enemy', o: en });
     for (const a of s.arrows) items.push({ z: a.z, kind: 'arrow', o: a });
@@ -808,7 +1181,15 @@
     for (const p of s.particles) items.push({ z: p.z, kind: 'particle', o: p });
     items.sort((a, b) => b.z - a.z);
     for (const it of items) {
+      if (ride || shifted) {
+        const ox = it.kind === 'fog' ? (ride ? ride.cam.x : camX) : it.o.x, oy = it.kind === 'fog' ? (ride ? ride.cam.y : EYE_H) : (it.o.y || 0);
+        const pr = project(ox, oy, it.z);
+        if (pr.behind) continue;
+        if (ride && (it.kind === 'tree' || it.kind === 'fog' || it.kind === 'prop') && pr.s > focal() * 1.1) continue;   // too close to the lens
+      }
       if (it.kind === 'target') drawTarget(it.o);
+      else if (it.kind === 'ledge') drawLedge(it.o);
+      else if (it.kind === 'incoming') drawIncoming(it.o);
       else if (it.kind === 'fog') drawFog(it.o);
       else if (it.kind === 'prop') drawProp(it.o);
       else if (it.kind === 'tree') drawTree(it.o);
@@ -822,7 +1203,8 @@
     }
 
     // Aim marker
-    if (s.aim) {
+    if (s.aim && s.level === 6) drawCitadelPreview(launchVelocity(s.aim));
+    else if (s.aim) {
       const vel = launchVelocity(s.aim);
       {
         const lp = landingPoint(vel);
@@ -841,8 +1223,7 @@
       }
     }
 
-    drawParapet();
-    drawBow();
+    if (!ride) { drawParapet(); drawBow(); }
     drawPost();
     ctx.restore();
     drawCompass();
@@ -889,22 +1270,30 @@
 
   // Compass radar in the top-right corner: enemies as red dots by bearing and distance.
   function drawCompass() {
-    if (!state.running || state.level === 3) return;
+    if (!state.running || state.level === 3 || ride) return;
     const r = Math.min(W, H) * 0.075, cx = W - 14 - r, cy = 56 + r + (parseFloat(getComputedStyle(document.documentElement).paddingTop) || 0);
+    lastCompass = { cx, cy, r };
     ctx.save();
     ctx.fillStyle = 'rgba(10,8,20,.45)'; ctx.beginPath(); ctx.arc(cx, cy, r, 0, 6.28); ctx.fill();
     ctx.strokeStyle = 'rgba(244,234,214,.45)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(cx, cy, r, 0, 6.28); ctx.stroke();
     ctx.strokeStyle = 'rgba(244,234,214,.15)'; ctx.beginPath(); ctx.arc(cx, cy, r * 0.5, 0, 6.28); ctx.stroke();
     ctx.fillStyle = 'rgba(244,234,214,.7)'; ctx.font = '600 ' + Math.max(8, r * 0.26) + 'px Cinzel, serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText('N', cx, cy - r * 0.78); ctx.fillText('S', cx, cy + r * 0.78); ctx.fillText('W', cx - r * 0.78, cy); ctx.fillText('E', cx + r * 0.78, cy);
-    // player
-    ctx.fillStyle = '#f4ead6'; ctx.beginPath(); ctx.moveTo(cx, cy - r * 0.16); ctx.lineTo(cx - r * 0.1, cy + r * 0.1); ctx.lineTo(cx + r * 0.1, cy + r * 0.1); ctx.closePath(); ctx.fill();
+    // view cone + player needle, turned with the look direction
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(camYaw);
+    ctx.fillStyle = 'rgba(240,192,82,.14)'; ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, r * 0.95, -Math.PI / 2 - 0.5, -Math.PI / 2 + 0.5); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#f4ead6'; ctx.beginPath(); ctx.moveTo(0, -r * 0.16); ctx.lineTo(-r * 0.1, r * 0.1); ctx.lineTo(r * 0.1, r * 0.1); ctx.closePath(); ctx.fill();
+    ctx.restore();
     for (const en of state.enemies) {
       if (en.dying) continue;
       const d = Math.min(1, Math.hypot(en.x, en.z) / SPAWN_Z) * r * 0.9;
       const ang = Math.atan2(en.x, en.z);
       ctx.fillStyle = en.type === 'alpha' || en.type === 'hulk' ? '#ff5a3a' : '#e8392b';
       ctx.beginPath(); ctx.arc(cx + Math.sin(ang) * d, cy - Math.cos(ang) * d, Math.max(2, r * 0.07), 0, 6.28); ctx.fill();
+    }
+    for (const inc of state.incoming) {
+      const d = Math.min(1, Math.hypot(inc.x, inc.z) / SPAWN_Z) * r * 0.9, ang = Math.atan2(inc.x, inc.z);
+      ctx.fillStyle = '#ffb347'; ctx.beginPath(); ctx.arc(cx + Math.sin(ang) * d, cy - Math.cos(ang) * d, Math.max(1.5, r * 0.05), 0, 6.28); ctx.fill();
     }
     for (const b of state.barrels) {
       const d = Math.min(1, Math.hypot(b.x, b.z) / SPAWN_Z) * r * 0.9, ang = Math.atan2(b.x, b.z);
@@ -981,6 +1370,18 @@
   }
 
   // World props for the forest: silhouettes that sit in the depth order.
+  const CAMP_PROPS = [
+    { kind: 'tower', x: -5.5, z: 22, h: 7 },
+    { kind: 'torch', x: -4.6, z: 21.5, h: 2.2 }, { kind: 'torch', x: -6.4, z: 21.5, h: 2.2 },
+    { kind: 'banner', x: -2.8, z: 20, h: 4.8 }, { kind: 'banner', x: 5.5, z: 24, h: 5 }, { kind: 'banner', x: -9, z: 3.5, h: 6 },
+    { kind: 'palisade', x: -9, z: 18, w: 5 }, { kind: 'palisade', x: 3, z: 19, w: 7 }, { kind: 'palisade', x: 9, z: 17, w: 5 },
+    { kind: 'brazier', x: -2.2, z: 17.5, h: 1.0 }, { kind: 'brazier', x: 2.6, z: 16.5, h: 1.0 },
+    { kind: 'torch', x: 6.5, z: 14, h: 2.4 }, { kind: 'torch', x: -7.5, z: 12, h: 2.4 }, { kind: 'torch', x: 3.8, z: 8, h: 2.2 }, { kind: 'torch', x: -4.2, z: 6.5, h: 2.2 },
+    { kind: 'boulder', x: 3.2, z: 13, w: 1.2 }, { kind: 'boulder', x: -4.8, z: 9.5, w: 0.9 }, { kind: 'boulder', x: 5.5, z: 5, w: 1.4 }, { kind: 'boulder', x: -3, z: 3.2, w: 0.8 },
+    { kind: 'fence', x: -7, z: 10, w: 4 }, { kind: 'fence', x: 7, z: 9, w: 3.5 },
+    { kind: 'hut', x: -1, z: 24, h: 2.4 },
+  ];
+  function propsFor() { return state.level === 2 ? FOREST_PROPS : (isCamp() ? CAMP_PROPS : []); }
   const FOREST_PROPS = [
     { kind: 'tower', x: 2.6, z: 23, h: 7 },
     { kind: 'gallows', x: -7.5, z: 16, h: 4.2 },
@@ -1017,6 +1418,66 @@
       ctx.fillRect(-u * 0.16, u * 0.3, u * 0.32, u * 0.6);
       ctx.fillRect(-u * 0.14, u * 0.9, u * 0.1, u * 0.55); ctx.fillRect(u * 0.04, u * 0.9, u * 0.1, u * 0.5);
       ctx.restore();
+    } else if (pr.kind === 'torch') {
+      const fl = 0.85 + Math.sin(performance.now() / 70 + pr.z * 3) * 0.1 + Math.sin(performance.now() / 31 + pr.x) * 0.08;
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = '#110c0a'; ctx.lineWidth = Math.max(2, u * 0.12); ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(p.sx, p.sy); ctx.lineTo(p.sx, p.sy - h); ctx.stroke();
+      ctx.fillStyle = '#2a1a10'; ctx.fillRect(p.sx - u * 0.14, p.sy - h - u * 0.25, u * 0.28, u * 0.3);
+      // flame with glow
+      const fy = p.sy - h - u * 0.25;
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      const hk = darkCfg().glow;
+      const g = ctx.createRadialGradient(p.sx, fy, 1, p.sx, fy, u * 1.6 * fl * hk);
+      g.addColorStop(0, 'rgba(255,180,80,' + 0.55 * hk + ')'); g.addColorStop(1, 'rgba(255,110,30,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.sx, fy, u * 1.6 * fl * hk, 0, 6.28); ctx.fill(); ctx.restore();
+      ctx.fillStyle = '#ff8a2a'; ctx.beginPath(); ctx.moveTo(p.sx - u * 0.16, fy); ctx.quadraticCurveTo(p.sx - u * 0.2, fy - u * 0.4 * fl, p.sx, fy - u * 0.6 * fl); ctx.quadraticCurveTo(p.sx + u * 0.2, fy - u * 0.35 * fl, p.sx + u * 0.16, fy); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#ffd37a'; ctx.beginPath(); ctx.moveTo(p.sx - u * 0.07, fy); ctx.quadraticCurveTo(p.sx, fy - u * 0.3 * fl, p.sx + u * 0.07, fy); ctx.closePath(); ctx.fill();
+      if (Math.random() < 0.15) flame(pr.x + (Math.random() - 0.5) * 0.2, pr.h + 0.3, pr.z, true);
+    } else if (pr.kind === 'brazier') {
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = '#120d0b'; ctx.lineWidth = Math.max(2, u * 0.08); ctx.lineCap = 'round';
+      for (const d of [-0.5, 0, 0.5]) { ctx.beginPath(); ctx.moveTo(p.sx + d * u * 0.9, p.sy); ctx.lineTo(p.sx + d * u * 0.3, p.sy - h); ctx.stroke(); }
+      ctx.fillStyle = '#1a1210'; ctx.beginPath(); ctx.ellipse(p.sx, p.sy - h, u * 0.55, u * 0.22, 0, 0, 6.28); ctx.fill();
+      ctx.fillStyle = '#2a1c14'; ctx.beginPath(); ctx.ellipse(p.sx, p.sy - h - u * 0.05, u * 0.5, u * 0.16, 0, 0, 6.28); ctx.fill();
+      const fy = p.sy - h - u * 0.05, fl = 0.9 + Math.sin(performance.now() / 60 + pr.x * 5) * 0.12;
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      const hk = darkCfg().glow;
+      const g = ctx.createRadialGradient(p.sx, fy, 1, p.sx, fy, u * 2.2 * fl * hk);
+      g.addColorStop(0, 'rgba(255,170,70,' + 0.6 * hk + ')'); g.addColorStop(1, 'rgba(255,100,30,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.sx, fy, u * 2.2 * fl * hk, 0, 6.28); ctx.fill(); ctx.restore();
+      ctx.fillStyle = '#ff8a2a'; ctx.beginPath(); ctx.moveTo(p.sx - u * 0.4, fy); ctx.quadraticCurveTo(p.sx - u * 0.35, fy - u * 0.5 * fl, p.sx - u * 0.1, fy - u * 0.7 * fl); ctx.quadraticCurveTo(p.sx + u * 0.1, fy - u * 0.4, p.sx + u * 0.2, fy - u * 0.85 * fl); ctx.quadraticCurveTo(p.sx + u * 0.4, fy - u * 0.4 * fl, p.sx + u * 0.4, fy); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#ffd37a'; ctx.beginPath(); ctx.moveTo(p.sx - u * 0.18, fy); ctx.quadraticCurveTo(p.sx, fy - u * 0.45 * fl, p.sx + u * 0.18, fy); ctx.closePath(); ctx.fill();
+      for (let i = 0; i < 2; i++) if (Math.random() < 0.4) flame(pr.x + (Math.random() - 0.5) * 0.5, pr.h + 0.4 + Math.random() * 0.3, pr.z, true);
+    } else if (pr.kind === 'palisade') {
+      // row of sharpened stakes, lit by whatever is near
+      const n = Math.round(pr.w / 0.45), lit2 = lightAt(pr.x, 1.2, pr.z);
+      const fire = Math.min(1, lightSources.reduce((a, src) => a + src.i / (1 + ((pr.x - src.x) ** 2 + (pr.z - src.z) ** 2) / (FIRE_RADIUS * FIRE_RADIUS) * 9), 0));
+      ctx.fillStyle = mix(mix('#0a0806', '#2a1c12', lit2), '#7a4218', fire * 0.5);
+      for (let i = 0; i < n; i++) {
+        const q = project(pr.x - pr.w / 2 + i * 0.45, 0, pr.z + (i % 2) * 0.1), sh = (1.8 + Math.sin(i * 1.7) * 0.25) * q.s, sw = 0.3 * q.s;
+        ctx.beginPath(); ctx.moveTo(q.sx - sw / 2, q.sy); ctx.lineTo(q.sx - sw / 2, q.sy - sh + sw); ctx.lineTo(q.sx, q.sy - sh); ctx.lineTo(q.sx + sw / 2, q.sy - sh + sw); ctx.lineTo(q.sx + sw / 2, q.sy); ctx.closePath(); ctx.fill();
+      }
+      ctx.strokeStyle = 'rgba(0,0,0,.5)'; ctx.lineWidth = Math.max(1.5, u * 0.08);
+      const a0 = project(pr.x - pr.w / 2, 1.0, pr.z), a1 = project(pr.x + pr.w / 2, 1.0, pr.z);
+      ctx.beginPath(); ctx.moveTo(a0.sx, a0.sy); ctx.lineTo(a1.sx, a1.sy); ctx.stroke();
+    } else if (pr.kind === 'fence') {
+      const n = Math.round(pr.w / 0.8);
+      ctx.strokeStyle = '#0d0a08'; ctx.lineWidth = Math.max(1.5, u * 0.07); ctx.lineCap = 'round';
+      for (let i = 0; i <= n; i++) { const q = project(pr.x - pr.w / 2 + i * 0.8, 0, pr.z), q2 = project(pr.x - pr.w / 2 + i * 0.8, 0.9, pr.z); ctx.beginPath(); ctx.moveTo(q.sx, q.sy); ctx.lineTo(q2.sx, q2.sy); ctx.stroke(); }
+      for (const yy of [0.35, 0.75]) { const a0 = project(pr.x - pr.w / 2, yy, pr.z), a1 = project(pr.x + pr.w / 2, yy + 0.1, pr.z); ctx.beginPath(); ctx.moveTo(a0.sx, a0.sy); ctx.lineTo(a1.sx, a1.sy); ctx.stroke(); }
+    } else if (pr.kind === 'boulder') {
+      const lit2 = lightAt(pr.x, 0.5, pr.z), r = srand(pr.x * 3 + pr.z);
+      const fire = Math.min(1, lightSources.reduce((a, src) => a + src.i / (1 + ((pr.x - src.x) ** 2 + (pr.z - src.z) ** 2) / (FIRE_RADIUS * FIRE_RADIUS) * 9), 0));
+      const w = pr.w * u, hh = pr.w * 0.7 * u;
+      ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.beginPath(); ctx.ellipse(p.sx, p.sy, w * 0.7, w * 0.2, 0, 0, 6.28); ctx.fill();
+      ctx.fillStyle = mix(mix('#0c0c12', '#2c2e3a', lit2), '#6a4020', fire * 0.5);
+      ctx.beginPath(); ctx.moveTo(p.sx - w * 0.6, p.sy);
+      ctx.quadraticCurveTo(p.sx - w * 0.7, p.sy - hh * 0.6, p.sx - w * 0.25, p.sy - hh);
+      ctx.quadraticCurveTo(p.sx + w * 0.2, p.sy - hh * 1.1, p.sx + w * 0.55, p.sy - hh * 0.5);
+      ctx.quadraticCurveTo(p.sx + w * 0.7, p.sy - hh * 0.2, p.sx + w * 0.6, p.sy); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = mix(mix('#16161e', '#4a4c5c', lit2), '#9a6030', fire * 0.5);
+      ctx.beginPath(); ctx.ellipse(p.sx - w * 0.15 + (fire > 0.1 ? 0 : MOON_X * w * 0.1), p.sy - hh * 0.65, w * 0.28, hh * 0.22, -0.3, 0, 6.28); ctx.fill();
     } else if (pr.kind === 'hut') {
       ctx.fillStyle = dark;
       ctx.fillRect(p.sx - u * 1.5, p.sy - h * 0.6, u * 3, h * 0.6);
@@ -1033,6 +1494,254 @@
       ctx.beginPath(); ctx.moveTo(p.sx - u * 0.4, p.sy - h * 0.75); ctx.lineTo(p.sx + u * 0.4, p.sy - h * 0.45); ctx.moveTo(p.sx + u * 0.4, p.sy - h * 0.75); ctx.lineTo(p.sx - u * 0.4, p.sy - h * 0.45); ctx.stroke();
     }
     ctx.restore();
+  }
+
+  // ---- Siege camp: a raided camp under a huge moon, lit by torches ----
+  function drawCampBackdrop(hy, night) {
+    const sky = ctx.createLinearGradient(0, 0, 0, hy);
+    if (night) { sky.addColorStop(0, '#02040c'); sky.addColorStop(0.55, '#060d22'); sky.addColorStop(1, '#0c1a38'); }
+    else { sky.addColorStop(0, '#050a18'); sky.addColorStop(0.5, '#0c1a36'); sky.addColorStop(1, '#1b3458'); }
+    ctx.fillStyle = sky; ctx.fillRect(-20, -20, W + 40, hy + 20);
+    const r = srand(5.1); ctx.fillStyle = night ? 'rgba(200,215,245,.35)' : 'rgba(220,230,250,.5)';
+    for (let i = 0; i < 50; i++) ctx.fillRect(r() * W, r() * hy * 0.7, 1.2, 1.2);
+    // moon, top right: big and bright in the camp, smaller and colder in the night raid
+    const mx = W * 0.72, my = hy * 0.26, mr = night ? W * 0.075 : W * 0.13;
+    const mg = ctx.createRadialGradient(mx, my, mr * 0.3, mx, my, mr * 3);
+    mg.addColorStop(0, night ? 'rgba(170,195,240,.3)' : 'rgba(200,220,255,.45)'); mg.addColorStop(1, 'rgba(200,220,255,0)');
+    ctx.fillStyle = mg; ctx.beginPath(); ctx.arc(mx, my, mr * 3, 0, 6.28); ctx.fill();
+    ctx.fillStyle = night ? '#c9d6ea' : '#e6edf8'; ctx.beginPath(); ctx.arc(mx, my, mr, 0, 6.28); ctx.fill();
+    ctx.fillStyle = 'rgba(150,165,190,.3)';
+    ctx.beginPath(); ctx.arc(mx - mr * 0.3, my + mr * 0.1, mr * 0.25, 0, 6.28); ctx.fill();
+    ctx.beginPath(); ctx.arc(mx + mr * 0.35, my - mr * 0.3, mr * 0.16, 0, 6.28); ctx.fill();
+    // mountains in haze
+    ctx.fillStyle = night ? '#0a1530' : '#152a4a';
+    ctx.beginPath(); ctx.moveTo(-20, hy);
+    for (const [px, py] of [[0.0, 0.66], [0.12, 0.5], [0.25, 0.6], [0.4, 0.46], [0.55, 0.58], [0.68, 0.5], [0.82, 0.62], [1.0, 0.54]]) ctx.lineTo(W * px, hy * py);
+    ctx.lineTo(W + 20, hy); ctx.closePath(); ctx.fill();
+    // castle silhouette on the right ridge, in front of the moon
+    const cx = W * 0.74, cb = hy * 0.56;
+    ctx.fillStyle = night ? '#040914' : '#0a1326';
+    ctx.beginPath(); ctx.moveTo(W * 0.55, hy); ctx.quadraticCurveTo(W * 0.7, hy * 0.6, W * 0.86, hy * 0.58); ctx.quadraticCurveTo(W * 0.95, hy * 0.6, W + 20, hy); ctx.closePath(); ctx.fill();
+    ctx.fillRect(cx - W * 0.05, cb - hy * 0.12, W * 0.1, hy * 0.13);
+    ctx.fillRect(cx - W * 0.075, cb - hy * 0.08, W * 0.03, hy * 0.09);
+    ctx.fillRect(cx + W * 0.045, cb - hy * 0.09, W * 0.03, hy * 0.1);
+    ctx.fillRect(cx - W * 0.012, cb - hy * 0.2, W * 0.024, hy * 0.09);
+    for (let i = 0; i < 6; i++) ctx.fillRect(cx - W * 0.05 + i * W * 0.018, cb - hy * 0.135, W * 0.009, hy * 0.02);
+    ctx.fillStyle = '#ff9a3a'; for (const [wx, wy] of [[-0.03, -0.06], [0.01, -0.08], [0.0, -0.16], [0.055, -0.05]]) ctx.fillRect(cx + W * wx, cb + hy * wy, Math.max(1.5, W * 0.005), Math.max(2, hy * 0.012));
+    // ridges of far forest, hazier each row
+    const cols = night ? ['#07122a', '#050d20', '#030818'] : ['#0f2142', '#0b1a36', '#08132a'];
+    for (let row = 0; row < 3; row++) {
+      ctx.fillStyle = cols[row];
+      const rr = srand(21 + row), base = hy - row * 2 + 2, hgt = hy * (0.2 - row * 0.04), step = W * (0.045 - row * 0.008);
+      ctx.beginPath(); ctx.moveTo(-20, base + 4);
+      for (let x = -20; x <= W + 20; x += step) { const hh = hgt * (0.6 + rr() * 0.6); ctx.lineTo(x, base - hh * 0.2); ctx.lineTo(x + step * 0.5, base - hh); }
+      ctx.lineTo(W + 20, base + 4); ctx.closePath(); ctx.fill();
+    }
+  }
+  // cobbled path winding from the gate toward the camp
+  function drawCampPath(night) {
+    const r = srand(9.3);
+    ctx.fillStyle = night ? 'rgba(50,55,80,.22)' : 'rgba(70,72,90,.35)';
+    const pts = [];
+    for (let z = 1; z <= 26; z += 1) pts.push({ x: Math.sin(z * 0.35) * 1.6, z });
+    ctx.beginPath();
+    for (let i = 0; i < pts.length; i++) { const q = project(pts[i].x - 1.6, 0, pts[i].z); if (i === 0) ctx.moveTo(q.sx, q.sy); else ctx.lineTo(q.sx, q.sy); }
+    for (let i = pts.length - 1; i >= 0; i--) { const q = project(pts[i].x + 1.6, 0, pts[i].z); ctx.lineTo(q.sx, q.sy); }
+    ctx.closePath(); ctx.fill();
+    for (let i = 0; i < 160; i++) {
+      const z = 1 + r() * 25, x = Math.sin(z * 0.35) * 1.6 + (r() - 0.5) * 3.0;
+      const q = project(x, 0, z); if (q.s < 6) continue;
+      const lit2 = lightAt(x, 0, z);
+      ctx.fillStyle = night ? 'rgba(' + Math.round(40 + lit2 * 70) + ',' + Math.round(40 + lit2 * 55) + ',' + Math.round(55 + lit2 * 45) + ',' + (0.12 + lit2 * 0.3) + ')' : 'rgba(' + Math.round(90 + lit2 * 60) + ',' + Math.round(88 + lit2 * 50) + ',' + Math.round(100 + lit2 * 40) + ',.5)';
+      ctx.beginPath(); ctx.ellipse(q.sx, q.sy, 0.22 * q.s * (0.7 + r() * 0.6), 0.1 * q.s * (0.7 + r() * 0.6), 0, 0, 6.28); ctx.fill();
+    }
+  }
+
+  // Citadel aim preview: simulate the shot against the cliffs, draw the path it will really take.
+  function drawCitadelPreview(vel) {
+    let x = 0, y = EYE_H - 0.1, z = WALL_Z, vy = vel.vy; const dt = 1 / 60;
+    const path = []; let end = null, endKind = 'ground';
+    for (let i = 0; i < 400; i++) {
+      vy -= GRAVITY * dt; x += vel.vx * dt; y += vy * dt; z += vel.vz * dt;
+      if (y <= 0) { end = { x, y: 0, z }; break; }
+      let hit = false;
+      if (i > 15) for (const L of LEDGES) if (x > L.x0 && x < L.x1 && z > L.z - 0.4 && z < L.z + L.d && y < L.y) { end = { x, y, z }; endKind = (z < L.z + 0.2 || vy > 0) ? 'face' : 'top'; hit = true; break; }
+      if (hit) break;
+      if (i % 5 === 0) path.push({ x, y, z });
+    }
+    if (!end) end = { x, y, z };
+    // is a world point hidden behind a nearer cliff from the wall's viewpoint?
+    const hidden = (px, py, pz) => {
+      const q = project(px, py, pz);
+      for (const L of LEDGES) {
+        if (pz <= L.z) continue;
+        const a = project(L.x0 - 0.9, 0, L.z), b = project(L.x1 + 0.9, 0, L.z), t = project(L.x0, L.y, L.z);
+        if (q.sx > a.sx && q.sx < b.sx && q.sy > t.sy && q.sy < a.sy + 2) return true;
+      }
+      return false;
+    };
+    for (let i = 0; i < path.length; i++) {
+      const pt = path[i], q = project(pt.x, pt.y, pt.z);
+      ctx.fillStyle = hidden(pt.x, pt.y, pt.z) ? 'rgba(240,192,82,.18)' : 'rgba(240,192,82,.55)';
+      ctx.beginPath(); ctx.arc(q.sx, q.sy, 3.4 - 1.4 * i / path.length, 0, 6.28); ctx.fill();
+    }
+    const q = project(end.x, end.y, end.z), dim = hidden(end.x, end.y, end.z);
+    ctx.strokeStyle = dim ? 'rgba(240,192,82,.3)' : 'rgba(240,192,82,.9)'; ctx.lineWidth = 2;
+    if (endKind === 'face') {
+      // an X on the rock: the shot stops here
+      const r = Math.max(5, q.s * 0.25);
+      ctx.beginPath(); ctx.moveTo(q.sx - r, q.sy - r); ctx.lineTo(q.sx + r, q.sy + r); ctx.moveTo(q.sx + r, q.sy - r); ctx.lineTo(q.sx - r, q.sy + r); ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.ellipse(q.sx, q.sy, Math.max(6, 0.6 * q.s), Math.max(3, 0.25 * q.s), 0, 0, 6.28); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(q.sx, q.sy - 10 - 0.25 * q.s); ctx.lineTo(q.sx, q.sy - 2 - 0.25 * q.s); ctx.stroke();
+    }
+  }
+
+  // ---- Citadel: geometric ruins against a red sun ----
+  function drawCitadelBackdrop(hy) {
+    const sky = ctx.createLinearGradient(0, 0, 0, H);
+    sky.addColorStop(0, '#0d1120'); sky.addColorStop(0.45, '#1c2436'); sky.addColorStop(1, '#2a3246');
+    ctx.fillStyle = sky; ctx.fillRect(-20, -20, W + 40, H + 40);
+    const r = srand(7.7); ctx.fillStyle = 'rgba(230,235,250,.45)';
+    for (let i = 0; i < 12; i++) ctx.fillRect(r() * W, r() * hy * 0.5, 1.5, 1.5);
+    // the red sun
+    const sx = W * 0.6, sy = hy * 0.72, sr = W * 0.34;
+    const sg = ctx.createRadialGradient(sx, sy, sr * 0.6, sx, sy, sr * 1.8);
+    sg.addColorStop(0, 'rgba(240,80,40,.35)'); sg.addColorStop(1, 'rgba(240,80,40,0)');
+    ctx.fillStyle = sg; ctx.fillRect(-20, -20, W + 40, H + 40);
+    const sun = ctx.createLinearGradient(0, sy - sr, 0, sy + sr);
+    sun.addColorStop(0, '#ff5a3a'); sun.addColorStop(0.6, '#e8432a'); sun.addColorStop(1, '#b02a1e');
+    ctx.fillStyle = sun; ctx.beginPath(); ctx.arc(sx, sy, sr, 0, 6.28); ctx.fill();
+    // light shafts
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    for (const [ox, w] of [[-0.22, 0.09], [0.05, 0.14], [0.3, 0.07]]) { ctx.fillStyle = 'rgba(255,120,70,.05)'; ctx.beginPath(); ctx.moveTo(sx + ox * W, -20); ctx.lineTo(sx + ox * W + w * W, -20); ctx.lineTo(sx + ox * W + w * W * 1.8, H); ctx.lineTo(sx + ox * W - w * W * 0.6, H); ctx.closePath(); ctx.fill(); }
+    ctx.restore();
+    // far city: towers in haze, three rows
+    const rows = [['#5a6480', 0.62, 0.11], ['#414a66', 0.7, 0.14], ['#2c3448', 0.78, 0.17]];
+    rows.forEach(([col, baseF, hF], ri) => {
+      const rr = srand(31 + ri), base = hy * (baseF + 0.3), hgt = hy * hF * 2;
+      ctx.fillStyle = col;
+      let x = -20;
+      while (x < W + 20) { const w = W * (0.03 + rr() * 0.08), h = hgt * (0.3 + rr() * 0.9); ctx.fillRect(x, base - h, w, h + hy); if (rr() < 0.3) ctx.fillRect(x + w * 0.3, base - h - hgt * 0.4, w * 0.3, hgt * 0.4 + 2); x += w + W * rr() * 0.03; }
+    });
+    // viaduct across the middle
+    const vy = hy * 1.06, vh = hy * 0.22;
+    ctx.fillStyle = '#2a3144'; ctx.fillRect(W * 0.15, vy - vh, W * 0.6, vh);
+    ctx.fillStyle = '#414a66';
+    for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.arc(W * (0.22 + i * 0.145), vy, W * 0.055, Math.PI, 0); ctx.fill(); ctx.fillRect(W * (0.165 + i * 0.145), vy, W * 0.11, 2); }
+    ctx.fillStyle = '#1e2434'; ctx.fillRect(W * 0.15, vy - vh, W * 0.6, vh * 0.12);
+    // red beacon lines on the towers
+    ctx.fillStyle = '#ff3a2a';
+    for (const [bx, by, bh] of [[0.56, 0.5, 0.12], [0.74, 0.44, 0.16], [0.83, 0.55, 0.1]]) ctx.fillRect(W * bx, hy * by, 2, hy * bh);
+    // spiky pine rows in haze between the ruins
+    const pineRows = [[hy * 1.02, '#2f3850', 0.04, 0.9], [hy * 1.35, '#232b40', 0.055, 1.2], [hy * 1.75, '#1a2032', 0.07, 1.6]];
+    for (const [by, col, step, hh] of pineRows) {
+      ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(-20, by + 40);
+      const pr = srand(by);
+      for (let x = -20; x <= W + 20; x += W * step) { const h = hy * 0.12 * hh * (0.5 + pr() * 0.8); ctx.lineTo(x, by); ctx.lineTo(x + W * step * 0.5, by - h); }
+      ctx.lineTo(W + 20, by + 40); ctx.closePath(); ctx.fill();
+    }
+    // ground haze toward the wall
+    const gnd = ctx.createLinearGradient(0, hy, 0, H);
+    gnd.addColorStop(0, 'rgba(60,70,100,0)'); gnd.addColorStop(1, 'rgba(14,18,30,.85)');
+    ctx.fillStyle = gnd; ctx.fillRect(-20, hy, W + 40, H - hy + 20);
+    // tall dark pillars framing the view
+    ctx.fillStyle = '#0d111c';
+    ctx.beginPath(); ctx.moveTo(-20, -20); ctx.lineTo(W * 0.16, -20); ctx.lineTo(W * 0.08, H * 0.5); ctx.lineTo(W * 0.13, H); ctx.lineTo(-20, H); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(W + 20, -20); ctx.lineTo(W * 0.86, -20); ctx.lineTo(W * 0.93, H * 0.45); ctx.lineTo(W * 0.88, H); ctx.lineTo(W + 20, H); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(255,90,60,.08)'; ctx.beginPath(); ctx.moveTo(W * 0.16, -20); ctx.lineTo(W * 0.17, -20); ctx.lineTo(W * 0.09, H * 0.5); ctx.lineTo(W * 0.08, H * 0.5); ctx.closePath(); ctx.fill();
+  }
+  // A ledge: a cliff outcrop with a flat top the archers stand on
+  function drawLedge(L) {
+    const r = srand(L.z * 1.7 + L.x0);
+    const depth = Math.min(1, L.z / 32);
+    const top = mix('#232a3c', '#4a5578', depth), face = mix('#121826', '#2c3548', depth), dark = mix('#0b0f18', '#1a2030', depth);
+    // top surface
+    const d = project(L.x0, L.y, L.z), c = project(L.x1, L.y, L.z), e = project(L.x0 - 0.3, L.y, L.z + L.d), f = project(L.x1 + 0.3, L.y, L.z + L.d);
+    ctx.fillStyle = top;
+    ctx.beginPath(); ctx.moveTo(d.sx, d.sy); ctx.lineTo(e.sx, e.sy); ctx.lineTo(f.sx, f.sy); ctx.lineTo(c.sx, c.sy); ctx.closePath(); ctx.fill();
+    // jagged front face: top edge is straight (it's a ledge), sides step in and out down to the ground
+    const n = 6, pts = [];
+    pts.push([L.x0, L.y]);
+    pts.push([L.x1, L.y]);
+    for (let i = 1; i <= n; i++) { const yy = L.y * (1 - i / n); pts.push([L.x1 + (r() - 0.3) * 0.6 * (i / n) + 0.2, yy]); }
+    pts.push([L.x1 + 0.9, 0]); pts.push([L.x0 - 0.9, 0]);
+    for (let i = n; i >= 1; i--) { const yy = L.y * (1 - i / n); pts.push([L.x0 - (r() - 0.3) * 0.6 * (i / n) - 0.2, yy]); }
+    const grad = ctx.createLinearGradient(0, d.sy, 0, project(L.x0, 0, L.z).sy);
+    grad.addColorStop(0, face); grad.addColorStop(1, dark);
+    ctx.fillStyle = grad; ctx.beginPath();
+    pts.forEach(([x, y], i) => { const q = project(x, y, L.z); if (i === 0) ctx.moveTo(q.sx, q.sy); else ctx.lineTo(q.sx, q.sy); });
+    ctx.closePath(); ctx.fill();
+    // strata: a few horizontal bands and cracks
+    ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = Math.max(1, d.s * 0.04);
+    for (let i = 1; i < 4; i++) { const yy = L.y * (1 - i / 4), a = project(L.x0 + r() * 0.5, yy, L.z), b = project(L.x1 - r() * 0.5, yy + (r() - 0.5) * 0.3, L.z); ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.stroke(); }
+    for (let i = 0; i < 3; i++) { const xx = L.x0 + r() * (L.x1 - L.x0), a = project(xx, L.y, L.z), b = project(xx + (r() - 0.5) * 0.6, L.y * (0.3 + r() * 0.5), L.z); ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.stroke(); }
+    // sun-lit lip along the top edge
+    ctx.strokeStyle = 'rgba(255,110,70,' + (0.3 + depth * 0.4) + ')'; ctx.lineWidth = Math.max(1.5, d.s * 0.06);
+    ctx.beginPath(); ctx.moveTo(d.sx, d.sy); ctx.lineTo(c.sx, c.sy); ctx.stroke();
+    // a few boulders at the foot
+    ctx.fillStyle = dark;
+    for (let i = 0; i < 3; i++) { const q = project(L.x0 - 0.5 + r() * (L.x1 - L.x0 + 1), 0, L.z - 0.3 - r() * 0.5), w = (0.3 + r() * 0.4) * q.s; ctx.beginPath(); ctx.ellipse(q.sx, q.sy, w, w * 0.6, 0, Math.PI, 0); ctx.fill(); }
+  }
+  function drawIncoming(inc) {
+    const p = project(inc.x, inc.y, inc.z);
+    const q = project(inc.x + inc.vx * 0.04, inc.y + inc.vy * 0.04, inc.z + inc.vz * 0.04);
+    const len = Math.max(6, 0.9 * p.s), ang = Math.atan2(q.sy - p.sy, q.sx - p.sx);
+    ctx.save(); ctx.translate(p.sx, p.sy); ctx.rotate(ang);
+    ctx.globalCompositeOperation = 'lighter';
+    const g = ctx.createRadialGradient(0, 0, 1, 0, 0, Math.max(8, p.s * 0.35));
+    g.addColorStop(0, 'rgba(255,200,100,.9)'); g.addColorStop(1, 'rgba(255,100,30,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, Math.max(8, p.s * 0.35), 0, 6.28); ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = '#3a2a1a'; ctx.lineWidth = Math.max(1.5, p.s * 0.03);
+    ctx.beginPath(); ctx.moveTo(-len, 0); ctx.lineTo(0, 0); ctx.stroke();
+    ctx.fillStyle = '#ffd37a'; ctx.beginPath(); ctx.moveTo(len * 0.15, 0); ctx.lineTo(-len * 0.05, -len * 0.07); ctx.lineTo(-len * 0.05, len * 0.07); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+  // Archer silhouette on a ledge, bow raised while drawing, with a glowing arrow tip as the telegraph
+  function drawArcher(en) {
+    const p = project(en.x, en.baseY, en.z);
+    const w = en.w * p.s, h = en.h * p.s;
+    const alpha = en.dying ? Math.max(0, 1 - en.dying) : 1;
+    const drawing = en.drawT > 0, k = drawing ? 1 - en.drawT / en.drawLen : 0;
+    const ink = en.hit > 0 ? '#ffffff' : '#07060a';
+    ctx.save(); ctx.globalAlpha = alpha; ctx.translate(p.sx, p.sy);
+    if (en.dying && !en.reached) ctx.rotate(en.dying * 1.4);
+    const face = en.dir;
+    const step = drawing ? 0 : Math.sin(en.bob) * h * 0.06;
+    // legs
+    ctx.strokeStyle = ink; ctx.lineWidth = Math.max(2, w * 0.16); ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-w * 0.1, -h * 0.45); ctx.lineTo(-w * 0.18 + step * face, 0); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(w * 0.1, -h * 0.45); ctx.lineTo(w * 0.18 - step * face, 0); ctx.stroke();
+    // torso + head
+    ctx.fillStyle = ink;
+    ctx.beginPath(); ctx.moveTo(-w * 0.22, -h * 0.42); ctx.lineTo(-w * 0.3, -h * 0.75); ctx.lineTo(w * 0.3, -h * 0.75); ctx.lineTo(w * 0.22, -h * 0.42); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.arc(0, -h * 0.86, w * 0.22, 0, 6.28); ctx.fill();
+    if (en.type === 'warlord') { ctx.beginPath(); ctx.moveTo(-w * 0.2, -h * 0.95); ctx.lineTo(-w * 0.3, -h * 1.12); ctx.lineTo(-w * 0.08, -h * 1.0); ctx.closePath(); ctx.fill(); ctx.beginPath(); ctx.moveTo(w * 0.2, -h * 0.95); ctx.lineTo(w * 0.3, -h * 1.12); ctx.lineTo(w * 0.08, -h * 1.0); ctx.closePath(); ctx.fill(); }
+    // bow: toward the wall (down-screen), raised when drawing
+    const bx = face * w * 0.22, by = -h * (0.6 + k * 0.1);
+    ctx.lineWidth = Math.max(1.5, w * 0.07);
+    ctx.beginPath(); ctx.arc(bx, by, w * 0.45, -Math.PI * 0.45, Math.PI * 0.45); ctx.stroke();
+    ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,255,255,.5)';
+    const sx = bx + w * 0.45 * Math.cos(-Math.PI * 0.45), sy1 = by + w * 0.45 * Math.sin(-Math.PI * 0.45), sy2 = by + w * 0.45 * Math.sin(Math.PI * 0.45);
+    const nockX = bx - k * w * 0.35;
+    ctx.beginPath(); ctx.moveTo(sx, sy1); ctx.lineTo(nockX, by); ctx.lineTo(sx, sy2); ctx.stroke();
+    // arrow with a flaming tip while drawing
+    if (drawing) {
+      ctx.strokeStyle = '#3a2a1a'; ctx.lineWidth = Math.max(1.5, w * 0.05);
+      ctx.beginPath(); ctx.moveTo(nockX, by); ctx.lineTo(bx + w * 0.55, by); ctx.stroke();
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      const gr = Math.max(6, w * 0.3) * (0.6 + k * 0.8) * (0.9 + Math.sin(performance.now() / 50) * 0.1);
+      const g = ctx.createRadialGradient(bx + w * 0.55, by, 1, bx + w * 0.55, by, gr);
+      g.addColorStop(0, 'rgba(255,220,120,.95)'); g.addColorStop(0.5, 'rgba(255,140,40,.6)'); g.addColorStop(1, 'rgba(255,80,20,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(bx + w * 0.55, by, gr, 0, 6.28); ctx.fill(); ctx.restore();
+    }
+    // eyes
+    ctx.fillStyle = '#ffb347'; ctx.fillRect(-w * 0.12, -h * 0.9, Math.max(1.5, w * 0.08), Math.max(1.5, w * 0.05)); ctx.fillRect(w * 0.04, -h * 0.9, Math.max(1.5, w * 0.08), Math.max(1.5, w * 0.05));
+    if (en.maxHp > 1 && !en.dying) { const n = en.maxHp, pw = w * 0.7 / n; for (let i = 0; i < n; i++) { ctx.fillStyle = i < en.hp ? '#ff3a2a' : 'rgba(0,0,0,.4)'; ctx.fillRect(-w * 0.35 + i * pw, -h * 1.25, pw * 0.75, Math.max(2, h * 0.03)); } }
+    ctx.restore();
+    // shadow on the ledge
+    ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(p.sx, p.sy, w * 0.5, w * 0.14, 0, 0, 6.28); ctx.fill();
   }
 
   // ---- Range: a practice yard at first light ----
@@ -1098,17 +1807,34 @@
 
   // Fog band at depth z: a translucent veil the far things sink into, drifting slowly.
   function drawFog(z) {
-    const p = project(0, 0, z);
+    // the band sits straight ahead of the camera at this depth
+    const yaw = viewYaw(), cx0 = ride ? ride.cam.x : camX, cz0 = ride ? ride.cam.z : -Z0;
+    const p = project(cx0 + Math.sin(yaw) * (z - cz0), 0, cz0 + Math.cos(yaw) * (z - cz0));
+    if (p.behind) return;
     const t = performance.now() / 1000;
     const depth = Math.min(1, z / 36);
     const top = p.sy - Math.max(30, 2.6 * p.s) + Math.sin(t * 0.25 + z) * 4;
     const g = ctx.createLinearGradient(0, top, 0, p.sy + 8);
-    const a = 0.10 + depth * 0.22;
-    g.addColorStop(0, 'rgba(70,95,110,0)'); g.addColorStop(0.6, 'rgba(70,95,110,' + a + ')'); g.addColorStop(1, 'rgba(70,95,110,' + a * 0.6 + ')');
+    const a = (state.level === 6 ? 0.14 : 0.10) + depth * 0.22;
+    const c = state.level === 6 ? '120,110,130' : (state.level === 5 ? '30,45,90' : (state.level === 4 ? '60,80,130' : '70,95,110'));
+    g.addColorStop(0, 'rgba(' + c + ',0)'); g.addColorStop(0.6, 'rgba(' + c + ',' + a + ')'); g.addColorStop(1, 'rgba(' + c + ',' + a * 0.6 + ')');
     ctx.fillStyle = g; ctx.fillRect(-20, top, W + 40, p.sy + 8 - top);
   }
 
   function drawPost() {
+    if (ride) {
+      // speed streaks from the center while flying
+      if (ride.phase === 'fly' && ride.t > 0.3) {
+        ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.strokeStyle = 'rgba(255,255,255,.06)'; ctx.lineWidth = 1.5;
+        const cx = W / 2, cy = H * 0.36;
+        for (let i = 0; i < 14; i++) { const ang = (i / 14) * 6.283 + ride.t * 0.3, r0 = Math.min(W, H) * (0.35 + Math.random() * 0.15), r1 = r0 + Math.min(W, H) * 0.4; ctx.beginPath(); ctx.moveTo(cx + Math.cos(ang) * r0, cy + Math.sin(ang) * r0); ctx.lineTo(cx + Math.cos(ang) * r1, cy + Math.sin(ang) * r1); ctx.stroke(); }
+        ctx.restore();
+      }
+      // letterbox
+      const bar = H * 0.08;
+      ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, bar); ctx.fillRect(0, H - bar, W, bar);
+      if (ride.phase === 'impact' && ride.hit && ride.hold < 0.12) { ctx.fillStyle = 'rgba(255,255,255,' + (0.5 * (1 - ride.hold / 0.12)) + ')'; ctx.fillRect(0, 0, W, H); }
+    }
     // ---- bloom: downsample, crush the darks, add back ----
     const bw = Math.max(32, Math.round(W / 8)), bh = Math.max(32, Math.round(H / 8));
     if (bloomC.width !== bw || bloomC.height !== bh) { bloomC.width = bw; bloomC.height = bh; }
@@ -1117,24 +1843,25 @@
     // multiply the image by itself twice: dark areas vanish, highlights stay (a cheap threshold)
     bloomCtx.globalCompositeOperation = 'multiply';
     bloomCtx.drawImage(bloomC, 0, 0); bloomCtx.drawImage(bloomC, 0, 0);
-    ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = state.level === 2 ? 0.9 : 0.6;
+    ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = isDark() ? darkCfg().bloom : 0.6;
     ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'low';
     ctx.drawImage(bloomC, 0, 0, W, H);
     ctx.restore();
     // ---- color grade ----
     ctx.save(); ctx.globalCompositeOperation = 'overlay';
-    ctx.fillStyle = state.level === 2 ? 'rgba(40,62,110,.16)' : (state.level === 3 ? 'rgba(220,200,150,.1)' : 'rgba(210,130,60,.12)');
+    ctx.fillStyle = state.level === 6 ? 'rgba(220,90,60,.1)' : state.level === 2 ? 'rgba(40,62,110,.16)' : (state.level === 5 ? 'rgba(20,35,100,.2)' : (state.level === 4 ? 'rgba(30,50,120,.22)' : (state.level === 3 ? 'rgba(220,200,150,.1)' : 'rgba(210,130,60,.12)')));
     ctx.fillRect(0, 0, W, H);
     // lift the shadows very slightly toward blue in the forest so black isn't dead
-    if (state.level === 2) { ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = 'rgba(8,12,24,1)'; ctx.fillRect(0, 0, W, H); }
+    if (isDark() && state.level !== 5) { ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = state.level === 4 ? 'rgba(6,10,28,1)' : 'rgba(8,12,24,1)'; ctx.fillRect(0, 0, W, H); }
     ctx.restore();
+    if (state.wallFlash > 0) { ctx.fillStyle = 'rgba(255,90,40,' + (0.35 * state.wallFlash / 0.35) + ')'; ctx.fillRect(0, 0, W, H); }
     // vignette
     const v = ctx.createRadialGradient(W / 2, H * 0.45, Math.min(W, H) * 0.35, W / 2, H * 0.5, Math.max(W, H) * 0.75);
-    v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,' + (state.level === 2 ? 0.55 : (state.level === 3 ? 0.22 : 0.35)) + ')');
+    v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,' + (isDark() ? darkCfg().vig : (state.level === 3 ? 0.22 : 0.35)) + ')');
     ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
     // film grain
     if (!grainPattern) grainPattern = ctx.createPattern(grain, 'repeat');
-    ctx.save(); ctx.globalCompositeOperation = 'overlay'; ctx.globalAlpha = state.level === 2 ? 0.16 : 0.1;
+    ctx.save(); ctx.globalCompositeOperation = 'overlay'; ctx.globalAlpha = isDark() ? 0.16 : 0.1;
     ctx.translate(Math.random() * 160, Math.random() * 160); ctx.fillStyle = grainPattern; ctx.fillRect(-160, -160, W + 320, H + 320);
     ctx.restore();
   }
@@ -1155,6 +1882,7 @@
 
     // ---- trunk: bark gradient, moon rim on one side, fire warmth on the other ----
     let dark = '#0c0a09', mid = mix('#1c1512', '#3a2a1e', Math.min(1, lit)), rim = mix('#262026', '#5a5468', Math.min(1, lit));
+    if (state.level === 5) { dark = '#030509'; mid = mix('#05080f', '#1a1410', Math.min(1, lit) * 0.6); rim = mix('#070b16', '#2a2a3a', Math.min(1, lit) * 0.5); }
     if (fire > 0) { mid = mix(mid, '#7a4a22', fire * 0.8); rim = mix(rim, '#c7752a', fire * 0.6); }
     if (tr.burning > 0) { mid = mix('#6b3a1a', '#1a0d08', burn); dark = '#0a0604'; }
     if (tr.charred) { mid = '#0a0806'; dark = '#050403'; rim = '#141010'; }
@@ -1198,9 +1926,10 @@
     }
 
     // ---- canopy: layered clumps with a lit side ----
-    const base = mix('#060a08', '#101a12', Math.min(1, lit));
+    let base = mix('#060a08', '#101a12', Math.min(1, lit));
     let litCol = mix('#0e1a12', '#223526', Math.min(1, lit));
     if (fire > 0) litCol = mix(litCol, '#8a4a1a', fire * 0.9);
+    if (state.level === 5) { base = mix('#03060c', '#0a1020', Math.min(1, lit) * 0.6); litCol = mix(base, '#6a3a14', fire * 0.6); }
     let cTop = base, cLit = litCol;
     if (tr.burning > 0) { cTop = mix('#c9541c', '#1a0d08', burn); cLit = mix('#ff8a2a', '#2a1208', burn); }
     if (tr.type === 'dead') {
@@ -1268,6 +1997,7 @@
       // bush: two or three overlapping rounded clumps hugging the ground
       let dark = mix('#070b08', '#0f1a11', Math.min(1, lit)), light = mix('#0e1a12', '#1f3322', Math.min(1, lit));
       if (fire > 0) light = mix(light, '#8a4a1a', fire * 0.8);
+      if (state.level === 5) { dark = mix('#03060c', '#0a1020', Math.min(1, lit) * 0.6); light = mix(dark, '#6a3a14', fire * 0.6); }
       if (tr.burning > 0) { const b = Math.min(1, (TREE_BURN * 0.6 - tr.burning) / (TREE_BURN * 0.6) + 0.2); dark = mix('#a8431a', '#1a0d08', b); light = mix('#ff8a2a', '#2a1208', b); }
       if (tr.charred) { dark = '#0a0806'; light = '#141010'; }
       const n = 3, shrink = tr.charred ? 0.55 : 1;
@@ -1294,8 +2024,9 @@
     ctx.closePath(); ctx.fill();
   }
   function drawEnemy(en) {
+    if (en.archer) { drawArcher(en); return; }
     const lit = lightAt(en.x, en.h * 0.5, en.z);
-    const alpha = (en.dying ? Math.max(0, 1 - en.dying) : 1) * (state.level === 2 ? Math.min(1, lit * 1.15) : 1);
+    const alpha = (en.dying ? Math.max(0, 1 - en.dying) : 1) * (isDark() ? Math.min(1, lit * 1.15) : 1);
     const p = project(en.x, 0, en.z);
     const w = en.w * p.s, h = en.h * p.s;
     const moving = en.dying ? 0 : en.speedMul;
@@ -1313,16 +2044,30 @@
     let skin = charred ? mix(en.color, '#1a1210', charred) : en.color;
     let cloth = charred ? mix(en.cloth, '#0d0a08', charred) : en.cloth;
     // Light tints the colors themselves: warm toward fire, faintly cool under moonlight (forest only)
-    if (state.level === 2) {
-      let fire = 0;
-      for (const src of lightSources) { const dx = en.x - src.x, dz = en.z - src.z; fire += src.i / (1 + (dx * dx + dz * dz) / (FIRE_RADIUS * FIRE_RADIUS) * 9); }
+    let fire = 0, fireDx = 0;
+    if (isDark()) {
+      for (const src of lightSources) { const dx = en.x - src.x, dz = en.z - src.z; const f = src.i / (1 + (dx * dx + dz * dz) / (FIRE_RADIUS * FIRE_RADIUS) * 9); fire += f; fireDx += f * (src.x - en.x); }
       fire = Math.min(1, fire);
-      if (fire > 0.03) { skin = mix(skin, '#ff8a3a', fire * 0.45); cloth = mix(cloth, '#a04a1a', fire * 0.35); }
-      else { skin = mix(skin, '#6f7f9a', 0.12); cloth = mix(cloth, '#3a4458', 0.12); }
+      if (!isCamp()) {
+        if (fire > 0.03) { skin = mix(skin, '#ff8a3a', fire * 0.45); cloth = mix(cloth, '#a04a1a', fire * 0.35); }
+        else { skin = mix(skin, '#6f7f9a', 0.12); cloth = mix(cloth, '#3a4458', 0.12); }
+      }
     }
-    if (en.hit > 0) { skin = '#ffffff'; cloth = '#ffffff'; }
     const bw = w * 0.55;
-    if (en.wolf) drawWolfBody(en, w, h, skin, cloth, p); else drawZombieBody(en, w, h, skin, cloth, p);
+    const body = (sk, cl) => { if (en.wolf) drawWolfBody(en, w, h, sk, cl, p); else drawZombieBody(en, w, h, sk, cl, p); };
+    if (isCamp()) {
+      // Siege camp: pure silhouette with a warm rim on the side facing the nearest fire
+      if (fire > 0.04 && !en.dying) {
+        const side = fireDx >= 0 ? 1 : -1;
+        const rim = en.hit > 0 ? '#ffffff' : mix('#ff7a2a', '#ffd37a', Math.min(1, fire));
+        ctx.save(); ctx.translate(side * Math.max(1.5, w * 0.07), 0); body(rim, rim); ctx.restore();
+      }
+      const ink = en.hit > 0 ? '#ffffff' : (en.burning > 0 ? mix('#070609', '#5a2a10', charred) : '#070609');
+      body(ink, ink);
+    } else {
+      if (en.hit > 0) { skin = '#ffffff'; cloth = '#ffffff'; }
+      body(skin, cloth);
+    }
     // Health pips for anything with more than 1 HP
     if (en.maxHp > 1 && !en.dying) {
       const n = en.maxHp, pw = w * 0.7 / n;
@@ -1332,7 +2077,8 @@
   }
 
   function drawEyes(x1, x2, y, ew, eh, col, alphaBody) {
-    if (state.level === 2) ctx.globalAlpha = Math.max(alphaBody, 0.9);
+    if (isDark()) ctx.globalAlpha = Math.max(alphaBody, 0.9);
+    if (isCamp()) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = 'rgba(255,120,40,.45)'; ctx.beginPath(); ctx.arc(x1 + ew / 2, y + eh / 2, ew * 1.6, 0, 6.28); ctx.fill(); ctx.beginPath(); ctx.arc(x2 + ew / 2, y + eh / 2, ew * 1.6, 0, 6.28); ctx.fill(); ctx.restore(); col = '#ffb347'; }
     ctx.fillStyle = col; ctx.fillRect(x1, y, ew, eh); ctx.fillRect(x2, y, ew, eh);
     ctx.globalAlpha = alphaBody;
   }
@@ -1395,7 +2141,7 @@
     ctx.save(); ctx.translate(lean, shY - h * 0.03); ctx.rotate(en.lean + Math.sin(en.bob * 0.5) * 0.08 * m);
     ctx.fillStyle = skin; ctx.beginPath(); ctx.arc(0, -h * 0.12, w * 0.25, 0, 6.28); ctx.fill();
     ctx.fillStyle = '#2a1a1a'; ctx.fillRect(-w * 0.09, -h * 0.06, w * 0.18, Math.max(1, h * 0.025 + Math.max(0, Math.sin(en.bob * 0.7)) * h * 0.015));
-    if (p.s > 14 || state.level === 2) drawEyes(-w * 0.13, w * 0.05, -h * 0.16, Math.max(1.5, w * 0.08), Math.max(1.5, w * 0.06), state.level === 2 ? '#f3f05a' : '#e9e25a', ctx.globalAlpha);
+    if (p.s > 14 || isDark()) drawEyes(-w * 0.13, w * 0.05, -h * 0.16, Math.max(1.5, w * 0.08), Math.max(1.5, w * 0.06), isDark() ? '#f3f05a' : '#e9e25a', ctx.globalAlpha);
     if (en.type === 'hulk') { ctx.fillStyle = '#2b2a2e'; ctx.fillRect(-w * 0.28, -h * 0.26, w * 0.56, h * 0.05); }
     ctx.restore();
   }
@@ -1516,7 +2262,7 @@
   function drawBarrel(b) {
     const p = project(b.x, b.r, b.z);
     const rr = b.r * p.s;
-    const lit = state.level === 2 ? Math.min(1, lightAt(b.x, b.r, b.z) * 1.2) : 1;
+    const lit = isDark() ? Math.min(1, lightAt(b.x, b.r, b.z) * 1.2) : 1;
     ctx.save(); ctx.globalAlpha = lit;
     // shadow
     const sh = project(b.x, 0, b.z);
@@ -1823,29 +2569,49 @@
     clearTimeout(bannerTimer); bannerTimer = setTimeout(() => bannerEl.style.opacity = 0, ms || 1500);
   }
   function startGame(level) {
-    state = newState(); state.running = true; paused = false;
+    endRide(); camYaw = 0; camYawTarget = 0; lookDir = 0; pan = null;
+    state = newState(); state.running = true; paused = false; updateAtBtn();
     hud.classList.toggle('range', level === 3);
+    state.level = level;
     if (level === 2) enterForest();
+    if (level === 4 || level === 5) enterCamp(level);
+    if (level === 6) state.level = 6;
     scoreEl.textContent = '0'; updateHP(); updateBuffs();
     startScr.classList.add('hidden'); overScr.classList.add('hidden'); hud.style.display = 'block';
     if (level === 3) { enterRange(); remainEl.textContent = state.bolts; return; }
     startWave();
   }
   function gameOver() {
+    endRide();
     state.running = false; state.aim = null;
     if (state.score > best) { best = state.score; try { localStorage.setItem('rampart-best', String(best)); } catch (e) {} }
     document.getElementById('overScore').textContent = state.score;
     lastLevel = state.level;
-    document.getElementById('againBtn').textContent = state.level === 2 ? 'Replay the forest' : 'Hold the wall again';
-    document.getElementById('switchBtn').textContent = state.level === 2 ? 'Back to the field' : 'Enter the forest';
-    document.getElementById('overTitle').textContent = state.level === 2 ? 'The pack is over the wall' : 'The dead are over the wall';
-    document.getElementById('overWave').textContent = 'Survived through wave ' + state.wave + (state.level === 2 ? ' in the forest' : '');
+    const names = { 1: 'the field', 2: 'the forest', 4: 'the camp', 5: 'the raid', 6: 'the citadel' };
+    document.getElementById('againBtn').textContent = state.level === 1 ? 'Hold the wall again' : 'Replay ' + names[state.level];
+    document.getElementById('switchBtn').textContent = 'Choose a stage';
+    document.getElementById('overTitle').textContent = state.level === 6 ? 'The wall is burning' : (state.level === 1 ? 'The dead are over the wall' : 'The pack is over the wall');
+    document.getElementById('overWave').textContent = 'Survived through wave ' + state.wave + ' in ' + names[state.level];
     document.getElementById('overBest').textContent = 'Best: ' + best;
     hud.style.display = 'none'; overScr.classList.remove('hidden');
   }
   document.getElementById('startBtn').addEventListener('click', () => startGame(1));
   document.getElementById('forestBtn').addEventListener('click', () => startGame(2));
   document.getElementById('rangeBtn').addEventListener('click', () => startGame(3));
+  document.getElementById('campBtn').addEventListener('click', () => startGame(4));
+  document.getElementById('raidBtn').addEventListener('click', () => startGame(5));
+  document.getElementById('citadelBtn').addEventListener('click', () => startGame(6));
+  // Stage menu: opened by the pause button during play
+  const menuScr = document.getElementById('menu');
+  function openMenu() {
+    paused = true; menuScr.classList.remove('hidden');
+    document.getElementById('resumeBtn').classList.toggle('hidden', !state.running);
+    for (const b of menuScr.querySelectorAll('[data-level]')) b.classList.toggle('current', Number(b.dataset.level) === state.level);
+  }
+  function closeMenu() { menuScr.classList.add('hidden'); paused = false; }
+  document.getElementById('resumeBtn').addEventListener('click', closeMenu);
+  document.getElementById('replayBtn').addEventListener('click', () => { menuScr.classList.add('hidden'); startGame(state.level); });
+  for (const b of menuScr.querySelectorAll('[data-level]')) b.addEventListener('click', () => { menuScr.classList.add('hidden'); startGame(Number(b.dataset.level)); });
   document.getElementById('howBtn').addEventListener('click', e => {
     const el = document.getElementById('howto'); const open = el.classList.toggle('hidden') === false;
     e.currentTarget.setAttribute('aria-expanded', open ? 'true' : 'false');
@@ -1853,12 +2619,18 @@
   });
   let lastLevel = 1;
   document.getElementById('againBtn').addEventListener('click', () => startGame(lastLevel));
-  document.getElementById('switchBtn').addEventListener('click', () => startGame(lastLevel === 1 ? 2 : 1));
+  document.getElementById('switchBtn').addEventListener('click', () => { overScr.classList.add('hidden'); state.level = lastLevel; openMenu(); document.getElementById('resumeBtn').classList.add('hidden'); });
   document.getElementById('pauseBtn').addEventListener('click', () => {
     if (!state.running) return;
-    paused = !paused; showBanner(paused ? 'Paused' : 'Hold the wall', paused ? 60000 : 900);
+    if (ride) endRide();
+    openMenu();
   });
   document.getElementById('barrelBtn').addEventListener('click', rollBarrel);
+  document.getElementById('atBtn').addEventListener('click', () => {
+    if (!state.running || ride || state.atCooldown > 0) return;
+    state.atArmed = !state.atArmed; updateAtBtn();
+    if (state.atArmed) showBanner('Arrow time armed', 900);
+  });
   const fireBtn = document.getElementById('fireBtn');
   fireBtn.addEventListener('click', () => {
     if (!state.running || state.fireAmmo <= 0) return;
@@ -1883,9 +2655,17 @@
   state = newState();
   let last = performance.now();
   function loop(now) {
-    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    const real = Math.min(0.05, (now - last) / 1000); last = now;
     try {
-      if (state.running && !paused) update(dt);
+      let dt = real;
+      if (lookDir && state.running && !paused && !ride) camYawTarget = Math.max(-LOOK_MAX, Math.min(LOOK_MAX, camYawTarget + lookDir * real * 1.3));
+      if (gyro.on && !pan && !lookDir && state.running && !paused && !ride) { const gy = gyroYaw(); if (gy != null) camYawTarget = gy; }
+      camYaw += (camYawTarget - camYaw) * Math.min(1, real * 9);
+      if (ride) { updateRide(real); dt = real * (ride && ride.phase === 'fly' ? RIDE_SLOW : RIDE_HOLD_SLOW); }
+      if (state.running && !paused) {
+        if (state.atCooldown > 0) { state.atCooldown -= real; if (state.atCooldown <= 0) { state.atCooldown = 0; updateAtBtn(); } }
+        update(dt);
+      }
       render();
     } catch (err) {
       // Never let one bad frame kill the game loop
