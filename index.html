@@ -149,6 +149,7 @@
     <button id="replayBtn" class="secondary">Replay this stage</button>
     <div class="row"><button id="gyroBtn" class="secondary" aria-pressed="false">Gyro look: off</button><button id="gyroInvBtn" class="secondary" aria-pressed="false">Invert</button></div>
     <button id="muteBtn" class="secondary" aria-pressed="false">Sound: on</button>
+    <p id="audioStatus" class="gyrostatus"></p>
     <p id="gyroStatus" class="gyrostatus"></p>
     <div class="stagegrid">
       <button class="secondary" data-level="1">The field</button>
@@ -505,18 +506,31 @@
     const amb = { nodes: [], level: null, kind: null };
     const loops = {};            // keyed continuous sounds: draw, flight, fire, wolves
     function ctxOk() { return ac && ac.state === 'running'; }
+    let lastErr = '';
+    function kick() {
+      // iOS needs an actual buffer played inside the gesture before it will unmute the context
+      try { const b = ac.createBuffer(1, 1, 22050); const src = ac.createBufferSource(); src.buffer = b; src.connect(ac.destination); src.start(0); } catch (e) {}
+    }
     function init() {
-      if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
+      if (ac) { if (ac.state !== 'running') { ac.resume().catch(() => {}); kick(); } return; }
       try {
-        ac = new (window.AudioContext || window.webkitAudioContext)();
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) { lastErr = 'no Web Audio in this browser'; return; }
+        ac = new AC();
         master = ac.createGain(); master.gain.value = muted ? 0 : 1; master.connect(ac.destination);
         sfxBus = ac.createGain(); sfxBus.gain.value = 0.9; sfxBus.connect(master);
         ambBus = ac.createGain(); ambBus.gain.value = 0.5; ambBus.connect(master);
         // 2s of white noise, reused everywhere
         noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
         const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-        if (ac.state === 'suspended') ac.resume();
-      } catch (e) { ac = null; }
+        kick();
+        if (ac.state !== 'running') ac.resume().catch(() => {});
+        ac.onstatechange = () => { if (ac.state === 'interrupted' || ac.state === 'suspended') setTimeout(() => ac.resume().catch(() => {}), 200); };
+      } catch (e) { ac = null; lastErr = String(e && e.message || e); }
+    }
+    function status() {
+      if (!ac) return lastErr ? 'Audio failed: ' + lastErr : 'Audio not started yet. Tap the screen.';
+      return 'Audio ' + ac.state + (muted ? ', muted' : '') + (ac.state === 'running' ? ' (' + Math.round(ac.sampleRate) + ' Hz)' : '');
     }
     const now = () => ac.currentTime;
     function noise(filterType, freq, q) {
@@ -764,7 +778,7 @@
     }
     function setMuted(m) { muted = m; try { localStorage.setItem('rampart-mute', m ? '1' : '0'); } catch (e) {} if (master) master.gain.setTargetAtTime(m ? 0 : 1, now(), 0.05); }
     function isMuted() { return muted; }
-    return { init, release, hit, explosion, wallHit, recock, howl, flap, scurry, enemyLoose, ui, setDraw, setFlight, setFire, setWolves, ambience, stopAmbience, setMuted, isMuted, ok: ctxOk };
+    return { init, release, hit, explosion, wallHit, recock, howl, flap, scurry, enemyLoose, ui, setDraw, setFlight, setFire, setWolves, ambience, stopAmbience, setMuted, isMuted, ok: ctxOk, status };
   })();
 
   // ---------- Haptics (Android Chrome; iOS Safari has no vibration API) ----------
@@ -809,7 +823,7 @@
   const muteBtn = document.getElementById('muteBtn');
   const syncMute = () => { muteBtn.textContent = SFX.isMuted() ? 'Sound: off' : 'Sound: on'; muteBtn.setAttribute('aria-pressed', SFX.isMuted() ? 'true' : 'false'); };
   syncMute();
-  muteBtn.addEventListener('click', () => { SFX.init(); SFX.setMuted(!SFX.isMuted()); syncMute(); if (!SFX.isMuted()) SFX.ui(); });
+  muteBtn.addEventListener('click', () => { SFX.init(); SFX.setMuted(!SFX.isMuted()); syncMute(); if (!SFX.isMuted()) SFX.ui(); const st = document.getElementById('audioStatus'); if (st) setTimeout(() => st.textContent = SFX.status(), 100); });
   const invBtn = document.getElementById('gyroInvBtn');
   invBtn.setAttribute('aria-pressed', gyro.invert ? 'true' : 'false');
   invBtn.addEventListener('click', () => {
@@ -2928,8 +2942,8 @@
     document.getElementById('overBest').textContent = 'Best: ' + best;
     hud.style.display = 'none'; overScr.classList.remove('hidden');
   }
-  document.addEventListener('pointerdown', () => SFX.init(), { once: true });
-  document.getElementById('startBtn').addEventListener('click', () => startGame(1));
+  for (const ev of ['touchstart', 'touchend', 'mousedown', 'click', 'keydown']) document.addEventListener(ev, () => SFX.init(), { passive: true, capture: true });
+  document.getElementById('startBtn').addEventListener('click', () => { SFX.init(); startGame(1); });
   document.getElementById('forestBtn').addEventListener('click', () => startGame(2));
   document.getElementById('rangeBtn').addEventListener('click', () => startGame(3));
   document.getElementById('campBtn').addEventListener('click', () => startGame(4));
@@ -2939,6 +2953,7 @@
   const menuScr = document.getElementById('menu');
   function openMenu() {
     paused = true; menuScr.classList.remove('hidden');
+    const st = document.getElementById('audioStatus'); if (st) st.textContent = SFX.status();
     document.getElementById('resumeBtn').classList.toggle('hidden', !state.running);
     for (const b of menuScr.querySelectorAll('[data-level]')) b.classList.toggle('current', Number(b.dataset.level) === state.level);
   }
