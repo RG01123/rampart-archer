@@ -338,7 +338,11 @@
     // a few short ones down the middle, far off
     for (let i = 0; i < 8; i++) mk((R() * 2 - 1) * 3, 24 + R() * 22, 3.5 + R() * 2, 0.5, pick());
     // undergrowth: bushes anywhere (they don't block shots or the sky), stumps on the sides
-    for (let i = 0; i < 18; i++) state.trees.push({ x: (R() * 2 - 1) * 15, z: 1.5 + R() * 40, h: 0.9 + R() * 0.9, w: 1.0 + R() * 1.2, type: 'bush', seed: R() * 7, burning: 0, charred: false });
+    for (let i = 0; i < 18; i++) {
+      const z = 6 + R() * 36; let x = (R() * 2 - 1) * 15;
+      if (z < 14 && Math.abs(x) < 3.5) x = Math.sign(x || 1) * (3.5 + R() * 4);   // keep the near lane clear
+      state.trees.push({ x, z, h: 0.9 + R() * 0.9, w: 1.0 + R() * 1.2, type: 'bush', seed: R() * 7, burning: 0, charred: false });
+    }
     for (let i = 0; i < 14; i++) state.trees.push({ x: side(i) * (3 + R() * 11), z: 3 + R() * 34, h: 0.6 + R() * 0.5, w: 0.6 + R() * 0.4, type: 'stump', seed: R() * 7, burning: 0, charred: false });
     state.trees.sort((a, b) => b.z - a.z);
   }
@@ -354,7 +358,11 @@
     for (let i = 0; i < 14; i++) mk(side(i) * (6 + R() * 10), 6 + R() * 10, 6 + R() * 3, 0.6 + R() * 0.4, 'pine');
     for (let i = 0; i < 60; i++) mk(side(i) * (5 + R() * 14), 18 + R() * 30, 5 + R() * 4, 0.5 + R() * 0.5, 'pine');
     const nb = state.level === 5 ? 4 : 10, bs = state.level === 5 ? 0.7 : 1;
-    for (let i = 0; i < nb; i++) state.trees.push({ x: (R() * 2 - 1) * 14, z: 5 + R() * 28, h: (0.8 + R() * 0.6) * bs, w: (1.0 + R() * 1.0) * bs, type: 'bush', seed: R() * 7, burning: 0, charred: false });
+    for (let i = 0; i < nb; i++) {
+      const z = 7 + R() * 26; let x = (R() * 2 - 1) * 14;
+      if (z < 14 && Math.abs(x) < 3.5) x = Math.sign(x || 1) * (3.5 + R() * 4);
+      state.trees.push({ x, z, h: (0.8 + R() * 0.6) * bs, w: (1.0 + R() * 1.0) * bs, type: 'bush', seed: R() * 7, burning: 0, charred: false });
+    }
     state.trees.sort((a, b) => b.z - a.z);
   }
   function enterRange() {
@@ -2274,8 +2282,12 @@
 
   function drawTree(tr) {
     const p = project(tr.x, 0, tr.z);
-    const lit = lightAt(tr.x, tr.h * 0.4, tr.z);
+    let lit = lightAt(tr.x, tr.h * 0.4, tr.z);
     if (lit < 0.02 && !tr.burning) return;
+    // anything right against the lens fades out so it can't blot out the view
+    const near = p.s / focal();   // 1 = one meter fills the screen width
+    if (near > 0.9) return;
+    if (near > 0.5) lit *= Math.max(0, (0.9 - near) / 0.4);
     const w = tr.w * p.s, h = tr.h * p.s;
     const r = srand(tr.seed);
     if (tr.type === 'bush' || tr.type === 'stump') { drawUndergrowth(tr, p, w, h, lit, r); return; }
