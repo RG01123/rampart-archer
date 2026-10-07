@@ -122,12 +122,12 @@
   <div class="screen" id="start">
     <h1>Rampart Archer</h1>
     <p>You hold the wall alone. They come from the dark edge of the field.</p>
-    <button id="startBtn">Hold the wall</button>
-    <button id="forestBtn" class="secondary">Enter the forest</button>
-    <button id="rangeBtn" class="secondary">Target range</button>
+    <button id="forestBtn">Enter the forest</button>
     <button id="campBtn" class="secondary">Siege camp</button>
     <button id="raidBtn" class="secondary">Night raid</button>
     <button id="citadelBtn" class="secondary">The citadel</button>
+    <button id="rangeBtn" class="secondary">Target range</button>
+    <button id="startBtn" class="secondary">Hold the wall</button>
     <button id="howBtn" class="link" type="button" aria-expanded="false">How to play</button>
     <div id="howto" class="howto hidden">
       <p>Touch anywhere and slide: up raises the bow for distance, down lowers it for a flat, close shot. Sideways to aim. Release to loose. Aim for the head.</p>
@@ -152,12 +152,12 @@
     <p id="audioStatus" class="gyrostatus"></p>
     <p id="gyroStatus" class="gyrostatus"></p>
     <div class="stagegrid">
-      <button class="secondary" data-level="1">The field</button>
       <button class="secondary" data-level="2">The forest</button>
       <button class="secondary" data-level="4">Siege camp</button>
       <button class="secondary" data-level="5">Night raid</button>
       <button class="secondary" data-level="6">The citadel</button>
       <button class="secondary" data-level="3">Target range</button>
+      <button class="secondary" data-level="1">The field</button>
     </div>
   </div>
 
@@ -817,12 +817,16 @@
         const c = noise('lowpass', 1200, 0.6); const cg = ac.createGain(); cg.gain.value = 0.08; c.f.connect(cg); cg.connect(level); c.src.start(); add(c.src);
       }
       if (kind === 'field') {
-        // crickets: two high chirp oscillators gated by an LFO
-        for (const [f0, r0] of [[4200, 7], [4600, 8.5]]) {
-          const o = ac.createOscillator(); o.type = 'sine'; o.frequency.value = f0; const g = ac.createGain(); g.gain.value = 0;
-          const l = ac.createOscillator(); l.type = 'square'; l.frequency.value = r0; const lg2 = ac.createGain(); lg2.gain.value = 0.03; l.connect(lg2); lg2.connect(g.gain);
-          o.connect(g); g.connect(level); o.start(); l.start(); add(o); add(l);
-        }
+        // crickets: short bursts of narrow-band noise, far off and quiet, with a low night drone underneath
+        const d = ac.createOscillator(); d.type = 'sine'; d.frequency.value = 52; const dg = ac.createGain(); dg.gain.value = 0.08; d.connect(dg); dg.connect(level); d.start(); add(d);
+        amb.callTimer = setInterval(() => {
+          if (!ctxOk() || amb.kind !== 'field') return; const t = now();
+          const f0 = 2600 + Math.random() * 500, n = 3 + Math.floor(Math.random() * 4), rate = 0.045 + Math.random() * 0.02;
+          for (let i = 0; i < n; i++) {
+            const c = noise('bandpass', f0, 18); const cg = ac.createGain(); c.f.connect(cg); cg.connect(level);
+            const tt = t + i * rate; env(cg, tt, 0.004, 0.035, 0.015, 0.0001, 0.01); c.src.start(tt); c.src.stop(tt + 0.05);
+          }
+        }, 650 + Math.random() * 900);
       }
       if (kind === 'range') {
         // birds: random short chirps
