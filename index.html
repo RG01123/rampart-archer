@@ -36,9 +36,9 @@
   #hud .remain span { color: #e8392b; font-weight: 700; }
   #hud .scoreline { font-size: .8rem; letter-spacing: .12em; text-transform: uppercase; color: var(--ui-dim); margin-top: 6px; }
   #hud .scoreline span { color: var(--gold); font-weight: 700; }
-  #hud .pause { position: absolute; top: calc(10px + env(safe-area-inset-top, 0px)); right: 14px; pointer-events: auto; font: 700 .9rem system-ui, sans-serif; letter-spacing: -2px; padding: 6px 10px; background: transparent; color: var(--ui); border: 0; opacity: .8; }
+  #hud .pause { position: absolute; right: 14px; bottom: calc(6px + env(safe-area-inset-bottom, 0px)); width: 40px; height: 40px; pointer-events: auto; font: 700 .85rem system-ui, sans-serif; letter-spacing: -2px; display: flex; align-items: center; justify-content: center; background: rgba(10,8,20,.5); color: var(--ui); border: 1.5px solid rgba(217,176,106,.6); border-radius: 50%; }
   #hud .pause:focus-visible { outline: 2px solid var(--gold); }
-  #hud .bottom { position: absolute; left: 14px; right: 14px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); display: flex; align-items: center; gap: 10px; }
+  #hud .bottom { position: absolute; left: 14px; right: 64px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); display: flex; align-items: center; gap: 10px; }
   #hud .crest { width: 40px; height: 40px; border-radius: 50%; border: 1.5px solid rgba(217,176,106,.6); display: flex; align-items: center; justify-content: center; background: rgba(10,8,20,.5); }
   #hud .bars { display: flex; align-items: center; gap: 8px; flex: 1; }
   #hud .hp { flex: 1; max-width: 240px; height: 9px; background: rgba(255,255,255,.1); border-radius: 3px; overflow: hidden; }
