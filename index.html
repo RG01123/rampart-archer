@@ -53,6 +53,9 @@
   #hud .bombbtn { left: 86px; width: 56px; height: 56px; bottom: calc(68px + env(safe-area-inset-bottom, 0px)); font-size: .9rem; }
   #hud .bombbtn[aria-pressed="true"] { border-color: #ff5a3a; color: #ff8a6a; box-shadow: 0 0 16px rgba(255,90,58,.55); }
   #hud.range #bombBtn { display: none; }
+  #hud .balloonbtn { left: 150px; width: 56px; height: 56px; bottom: calc(68px + env(safe-area-inset-bottom, 0px)); font-size: .9rem; }
+  #hud .balloonbtn[aria-pressed="true"] { border-color: #e8647e; color: #ffd1dc; box-shadow: 0 0 16px rgba(232,100,126,.55); }
+  #hud.range #balloonBtn { display: none; }
   #hud .look { position: absolute; top: 50%; transform: translateY(-50%); width: 40px; height: 72px; pointer-events: auto; background: rgba(10,8,20,.35); color: var(--ui); border: 1.5px solid rgba(244,234,214,.25); font: 700 1.8rem Georgia, serif; line-height: 1; touch-action: none; -webkit-user-select: none; user-select: none; }
   #hud #lookL { left: 0; border-left: 0; border-radius: 0 12px 12px 0; }
   #hud #lookR { right: 0; border-right: 0; border-radius: 12px 0 0 12px; }
@@ -116,6 +119,7 @@
     </div>
     <button class="firebtn" id="fireBtn" type="button" aria-pressed="false">🔥 <span id="fireCount">0</span></button>
     <button class="firebtn bombbtn" id="bombBtn" type="button" aria-pressed="false">💣 <span id="bombCount">0</span></button>
+    <button class="firebtn balloonbtn" id="balloonBtn" type="button" aria-pressed="false">🎈 <span id="balloonCount">0</span></button>
     <button class="firebtn barrelbtn" id="barrelBtn" type="button">🛢 <span id="barrelCount">0</span></button>
     <button class="firebtn atbtn" id="atBtn" type="button" aria-pressed="false" aria-label="Arrow time">⏱</button>
     <button class="look" id="lookL" type="button" aria-label="Look left">‹</button>
@@ -137,6 +141,7 @@
       <p>Touch anywhere and slide: up raises the bow for distance, down lowers it for a flat, close shot. Sideways to aim. Release to loose. Aim for the head.</p>
       <p>Tap the flame button to swap to fire bolts. You get a few each wave. Fire spreads between enemies that touch.</p>
       <p>The bomb button loads an explosive bolt: it blows up on whatever it hits, like a barrel. One or two per wave.</p>
+      <p>The balloon button loads a roped balloon bolt. Hit an enemy and it hoists them into the sky; shoot the balloon to drop them for double points. Leave it too long and they drift away.</p>
       <p>Shoot the glowing things that dart across the field. Orange gives fire bolts, pale blue gives silver bolts that kill in one hit, gold gives a three-bolt volley.</p>
       <p>Barrels roll through when the pack is close. A fire bolt blows one up, and anything near it. Roll your own from the wall with the barrel button, two per wave.</p>
       <p>The target range gives you 20 bolts and a mix of still and moving targets. Rings score 10, 7, 5 and 3; moving targets count double.</p>
@@ -214,6 +219,7 @@
   const SPREAD_RANGE = 1.3;     // meters: burning zombies ignite others this close
   const fireBoltsForWave = n => 3 + Math.floor(n / 2);
   const bombBoltsForWave = n => n >= 3 ? 2 : 1;
+  const LIFT_H = 7, LIFT_TIME = 15;
   const FOREST_WAVE = 6;        // stage 2 begins at this wave
   const AMBIENT_NEAR = 7;       // meters: fully lit by moonlight closer than this
   const AMBIENT_FAR = 26;       // meters: essentially black beyond this
@@ -292,7 +298,7 @@
       running: false, score: 0, wave: 0, hp: MAX_HP,
       enemies: [], arrows: [], particles: [], stuck: [],
       spawnQueue: [], spawnTimer: 0, waveClearTimer: 0,
-      reload: 0, shotsFired: 0, arrowType: 'normal', fireAmmo: 0, bombAmmo: 0,
+      reload: 0, shotsFired: 0, arrowType: 'normal', fireAmmo: 0, bombAmmo: 0, balloonAmmo: 0, balloons: [],
       silver: 0, volley: 0, critters: [], critterTimer: 6 + Math.random() * 6,
       barrels: [], barrelTimer: 14 + Math.random() * 10, blasts: [], barrelAmmo: 0,
       atArmed: false, atCooldown: 0,
@@ -374,7 +380,7 @@
   function enterRange() {
     state.level = 3;
     state.bolts = RANGE_BOLTS; state.rangeDone = false;
-    state.fireAmmo = 0; state.bombAmmo = 0; state.barrelAmmo = 0; updateFireBtn();
+    state.fireAmmo = 0; state.bombAmmo = 0; state.balloonAmmo = 0; state.barrelAmmo = 0; updateFireBtn();
     // static bullseyes at several distances, then movers worth double
     state.targets = [
       { x: -2.5, z: 6, y: 1.1, r: 0.55, kind: 'static' },
@@ -414,7 +420,7 @@
     if (state.level === 1 && state.wave === FOREST_WAVE) {
       enterForest();
       waveEl.textContent = 'Wave ' + state.wave;
-      state.fireAmmo = fireBoltsForWave(state.wave); state.bombAmmo = bombBoltsForWave(state.wave); state.barrelAmmo = 2; updateFireBtn();
+      state.fireAmmo = fireBoltsForWave(state.wave); state.bombAmmo = bombBoltsForWave(state.wave); state.balloonAmmo = 2; state.barrelAmmo = 2; updateFireBtn();
       state.spawnQueue = buildWave(state.wave); state.spawnTimer = 3.5;
       showBanner('Into the forest', 2600);
       return;
@@ -424,6 +430,7 @@
     waveEl.textContent = 'Wave ' + state.wave;
     state.fireAmmo = fireBoltsForWave(state.wave);
     state.bombAmmo = bombBoltsForWave(state.wave);
+    state.balloonAmmo = 2;
     state.barrelAmmo = 2;
     updateFireBtn();
     showBanner('Wave ' + state.wave);
@@ -495,6 +502,8 @@
     if (flaming) { state.fireAmmo--; if (state.fireAmmo <= 0) state.arrowType = 'normal'; updateFireBtn(); }
     const bomb = state.arrowType === 'bomb' && state.bombAmmo > 0;
     if (bomb) { state.bombAmmo--; if (state.bombAmmo <= 0) state.arrowType = 'normal'; updateFireBtn(); }
+    const balloon = state.arrowType === 'balloon' && state.balloonAmmo > 0;
+    if (balloon) { state.balloonAmmo--; if (state.balloonAmmo <= 0) state.arrowType = 'normal'; updateFireBtn(); }
     const silver = state.silver > 0; if (silver) state.silver--;
     const spread = state.volley > 0 ? [-6, 0, 6] : [0]; if (state.volley > 0) state.volley--;
     let center = null;
@@ -503,7 +512,7 @@
       const hv = Math.hypot(vel.vx, vel.vz);
       const tip = bowG ? { x: bowG.tip.x, y: bowG.tip.y } : null;
       const o = launchOrigin();
-      const arrow = { x: o.x, y: EYE_H - 0.1, z: o.z, vx: hv * Math.sin(yaw), vy: vel.vy, vz: hv * Math.cos(yaw), life: 0, fire: flaming, bomb, silver, tip };
+      const arrow = { x: o.x, y: EYE_H - 0.1, z: o.z, vx: hv * Math.sin(yaw), vy: vel.vy, vz: hv * Math.cos(yaw), life: 0, fire: flaming, bomb, balloon, silver, tip };
       state.arrows.push(arrow); if (deg === 0) center = arrow;
     }
     if (center && !ride) {
@@ -990,6 +999,7 @@
     for (const en of s.enemies) {
       if (en.dying) { en.dying += dt; continue; }
       if (en.hit > 0) en.hit -= dt;
+      if (en.lifted || en.falling) { en.bob += dt * 6; continue; }   // hanging from a balloon: no walking, no shooting
       if (en.archer) { updateArcher(en, dt); continue; }
       if (en.burning > 0) {
         en.burning -= dt; en.burnTick -= dt;
@@ -1042,6 +1052,7 @@
       }
     }
     s.enemies = s.enemies.filter(en => !(en.dying > 1.0));
+    updateBalloons(dt);
 
     // Incoming flaming arrows (citadel)
     for (const inc of s.incoming) {
@@ -1089,6 +1100,7 @@
       a.vy -= GRAVITY * dt;
       a.x += a.vx * dt; a.y += a.vy * dt; a.z += a.vz * dt;
       if (a.y <= 0 && a.bomb) { bombDetonate(a); continue; }
+      if (a.y <= 0 && a.balloon) { groundBalloon(a); continue; }
       if (a.y <= 0) {
         a.dead = true; s.stuck.push({ x: a.x, z: a.z, t: 0, yaw: Math.atan2(a.vx, a.vz), fire: a.fire });
         if (a.fire && isDark()) for (const tr of s.trees) if (tr.type === 'bush' && Math.abs(a.x - tr.x) < tr.w * 0.8 && Math.abs(a.z - tr.z) < 0.9) { igniteTree(tr); break; }
@@ -1110,6 +1122,18 @@
           }
         }
         if (blocked) continue;
+      }
+      // Balloons: any bolt pops one (fire drops them burning)
+      {
+        let popped = false;
+        for (const b of s.balloons) {
+          if (b.dead) continue;
+          if (Math.abs(a.x - b.x) < b.r && Math.abs(a.y - b.y) < b.r && Math.abs(a.z - b.z) < b.r + 0.4) {
+            if (a.bomb) { bombDetonate(a); popBalloon(b, false); popped = true; break; }
+            popBalloon(b, a.fire); a.dead = true; popped = true; break;
+          }
+        }
+        if (popped) continue;
       }
       // Citadel: ledges are solid, and an incoming arrow can be shot out of the air
       if (isCitadel() && a.life >= LAUNCH_BLEND) {
@@ -1134,10 +1158,11 @@
       }
       for (const en of s.enemies) {
         if (en.dying) continue;
-        const r = en.w * 0.55, b0 = en.baseY || 0;
+        const r = en.w * 0.55, b0 = (en.baseY || 0) + (en.liftY || 0);
         if (Math.abs(a.x - en.x) < r && Math.abs(a.z - en.z) < r + 0.35 && a.y >= b0 && a.y <= b0 + en.h) {
           const head = (a.y - b0) > en.h * 0.72;
           if (a.bomb) { bombDetonate(a); break; }
+          if (a.balloon && !en.lifted && !en.falling) { attachBalloon(a, en); break; }
           SFX.hit(en.archer ? 'archer' : (en.wolf ? 'wolf' : 'zombie'), en.x, en.z, head);
           en.hp -= a.silver ? 99 : (head ? 2 : 1); en.hit = 0.15;
           if (a.silver) burst(en.x, a.y, en.z, 12, '#cfe6ff');
@@ -1230,10 +1255,11 @@
       }
       if (isDark() && i > 22) for (const tr of state.trees) if (treeHit(tr, x, y, z)) return null;
       for (const b of state.barrels) if (!b.dead && Math.abs(x - b.x) < b.r + 0.15 && Math.abs(z - b.z) < b.r + 0.4 && y < b.r * 2.1) return { kind: 'barrel', o: b };
+      for (const b of state.balloons) if (!b.dead && Math.abs(x - b.x) < b.r && Math.abs(y - b.y) < b.r && Math.abs(z - b.z) < b.r + 0.4) return { kind: 'balloon', o: b };
       for (const en of state.enemies) {
         if (en.dying) continue;
         const r = en.w * 0.55;
-        const b0 = en.baseY || 0;
+        const b0 = (en.baseY || 0) + (en.liftY || 0);
         if (Math.abs(x - en.x) < r && Math.abs(z - en.z) < r + 0.35 && y >= b0 && y <= b0 + en.h) return { kind: 'enemy', o: en, head: (y - b0) > en.h * 0.72 };
       }
       for (const c of state.critters) if (!c.hit && Math.abs(x - c.x) < 0.75 && Math.abs(z - c.z) < 0.9 && Math.abs(y - c.y) < 0.7) return { kind: 'critter', o: c };
@@ -1242,8 +1268,9 @@
   }
   function rideTargetPoint() {
     const t = ride.target, o = t.o;
-    if (t.kind === 'enemy') return o.dying ? null : { x: o.x, y: (o.baseY || 0) + (t.head ? o.h * 0.85 : o.h * 0.5), z: o.z };
+    if (t.kind === 'enemy') return o.dying ? null : { x: o.x, y: (o.baseY || 0) + (o.liftY || 0) + (t.head ? o.h * 0.85 : o.h * 0.5), z: o.z };
     if (t.kind === 'critter') return o.hit ? null : { x: o.x, y: o.y, z: o.z };
+    if (t.kind === 'balloon') return o.dead ? null : { x: o.x, y: o.y, z: o.z };
     if (t.kind === 'barrel') return o.dead ? null : { x: o.x, y: o.r, z: o.z };
     return { x: o.x, y: o.y, z: o.z };
   }
@@ -1317,6 +1344,71 @@
     state.barrels.push({ x: 0, z: 0.9, r: BARREL_R, vx: 0, vz: 7.5 + Math.random() * 1.5, rot: 0, dead: false, away: true });
     buzz([15, 30, 15]);
   }
+  // ---- Balloon bolts: a hit hoists the enemy; shoot the balloon to drop them ----
+  function attachBalloon(a, en) {
+    a.dead = true;
+    en.lifted = true; en.liftY = 0; en.liftT = 0; en.liftVx = (Math.random() - 0.5) * 0.3;
+    if (en.archer) { en.drawT = 0; }
+    const b = { x: en.x, y: (en.baseY || 0) + en.h + 1.2, z: en.z, r: 0.9, enemy: en, t: 0, dead: false, bob: Math.random() * 6.28 };
+    state.balloons.push(b); en.balloon = b;
+    burst(en.x, (en.baseY || 0) + en.h, en.z, 10, '#ffd1dc'); buzz([15, 25, 15]); SFX.hit('critter', en.x, en.z);
+    floatText(en.x, (en.baseY || 0) + en.h + 0.5, en.z, 'Lifted');
+  }
+  function groundBalloon(a) {
+    a.dead = true;
+    state.balloons.push({ x: a.x, y: 1.3, z: a.z, r: 0.9, enemy: null, t: 0, dead: false, bob: Math.random() * 6.28, loose: 0 });
+  }
+  function popBalloon(b, byFire) {
+    if (b.dead) return; b.dead = true;
+    burst(b.x, b.y, b.z, 22, '#ffd1dc'); burst(b.x, b.y, b.z, 8, '#ffffff'); buzz(45); SFX.hit('intercept', b.x, b.z);
+    const en = b.enemy;
+    if (en && !en.dying && en.lifted) {
+      en.lifted = false; en.falling = true; en.fallV = 0; en.balloon = null;
+      if (byFire) ignite(en);
+    }
+  }
+  function updateBalloons(dt) {
+    const s = state;
+    for (const b of s.balloons) {
+      if (b.dead) continue;
+      b.t += dt; b.bob += dt * 2;
+      const en = b.enemy;
+      if (en && !en.dying && en.lifted) {
+        // rise, then hover and drift
+        en.liftT += dt;
+        en.liftY = Math.min(LIFT_H, en.liftY + (en.liftY < LIFT_H ? 2.2 * dt : 0));
+        en.x += en.liftVx * dt; en.z += Math.sin(en.liftT * 0.6) * 0.15 * dt;
+        b.x = en.x; b.z = en.z; b.y = (en.baseY || 0) + en.liftY + en.h + 1.0 + Math.sin(b.bob) * 0.15;
+        if (en.liftT > LIFT_TIME) {
+          // carried away: ordinary kill, no bonus
+          b.dead = true; en.lifted = false; en.carried = true; killEnemy(en, false);
+          floatText(en.x, (en.baseY || 0) + en.liftY + en.h, en.z, 'Carried off');
+        }
+      } else if (en && (en.dying || !en.lifted)) {
+        b.dead = true;
+      } else {
+        // a loose balloon on the ground: sit, then float off
+        b.loose += dt;
+        if (b.loose > 4) { b.y += 1.5 * dt; b.x += Math.sin(b.bob) * 0.2 * dt; }
+        if (b.y > 20) b.dead = true;
+      }
+    }
+    s.balloons = s.balloons.filter(b => !b.dead);
+    // falling enemies
+    for (const en of s.enemies) {
+      if (!en.falling || en.dying) continue;
+      en.fallV += GRAVITY * dt; en.liftY -= en.fallV * dt;
+      if (en.liftY <= 0) {
+        en.liftY = 0; en.falling = false;
+        burst(en.x, (en.baseY || 0) + 0.2, en.z, 18, '#b0291f'); s.shake = Math.max(s.shake, 0.5);
+        SFX.hit(en.archer ? 'archer' : (en.wolf ? 'wolf' : 'zombie'), en.x, en.z, true);
+        const pts = en.score; s.score += pts; scoreEl.textContent = s.score;   // extra on top of the kill's base points
+        floatText(en.x, (en.baseY || 0) + en.h, en.z, 'Dropped');
+        killEnemy(en, false);
+      }
+    }
+  }
+
   // A blast at a world point. Used by barrels and explosive bolts.
   function blastAt(x, y, z, radius, skipBarrel) {
     const s = state;
@@ -1333,6 +1425,7 @@
     for (const o of s.barrels) if (o !== skipBarrel && !o.dead && Math.hypot(o.x - x, o.z - z) < radius * 0.8) setTimeout(() => { if (!o.dead && state.barrels.includes(o)) explodeBarrel(o); }, 180);
     for (const c of s.critters) if (!c.hit && Math.hypot(c.x - x, c.z - z) < radius * 0.6 && Math.abs(c.y - y) < 2.5) { c.hit = 0.01; }
     for (const inc of s.incoming) if (!inc.dead && Math.hypot(inc.x - x, inc.y - y, inc.z - z) < radius) { inc.dead = true; burst(inc.x, inc.y, inc.z, 8, '#ffd37a'); }
+    for (const b of s.balloons) if (!b.dead && Math.hypot(b.x - x, b.y - y, b.z - z) < radius) popBalloon(b, true);
   }
   function explodeBarrel(b) {
     b.dead = true;
@@ -1629,6 +1722,7 @@
     for (const en of s.enemies) items.push({ z: en.z, kind: 'enemy', o: en });
     for (const a of s.arrows) items.push({ z: a.z, kind: 'arrow', o: a });
     for (const c of s.critters) items.push({ z: c.z, kind: 'critter', o: c });
+    for (const b of s.balloons) items.push({ z: b.z, kind: 'balloon', o: b });
     for (const b of s.barrels) items.push({ z: b.z, kind: 'barrel', o: b });
     for (const bl of s.blasts) items.push({ z: bl.z - 0.01, kind: 'blast', o: bl });
     for (const st of s.stuck) items.push({ z: st.z, kind: 'stuck', o: st });
@@ -1649,6 +1743,7 @@
       else if (it.kind === 'tree') drawTree(it.o);
       else if (it.kind === 'enemy') drawEnemy(it.o);
       else if (it.kind === 'critter') drawCritter(it.o);
+      else if (it.kind === 'balloon') drawBalloon(it.o);
       else if (it.kind === 'barrel') drawBarrel(it.o);
       else if (it.kind === 'blast') drawBlast(it.o);
       else if (it.kind === 'arrow') drawArrow(it.o);
@@ -2156,7 +2251,7 @@
   }
   // Archer silhouette on a ledge, bow raised while drawing, with a glowing arrow tip as the telegraph
   function drawArcher(en) {
-    const p = project(en.x, en.baseY, en.z);
+    const p = project(en.x, en.baseY + (en.liftY || 0), en.z);
     const w = en.w * p.s, h = en.h * p.s;
     const alpha = en.dying ? Math.max(0, 1 - en.dying) : 1;
     const drawing = en.drawT > 0, k = drawing ? 1 - en.drawT / en.drawLen : 0;
@@ -2487,15 +2582,16 @@
     if (en.archer) { drawArcher(en); return; }
     const lit = lightAt(en.x, en.h * 0.5, en.z);
     const alpha = (en.dying ? Math.max(0, 1 - en.dying) : 1) * (isDark() ? Math.min(1, lit * 1.15) : 1);
-    const p = project(en.x, 0, en.z);
+    const p = project(en.x, en.liftY || 0, en.z);
+    if (en.liftY > 0) { const sh = project(en.x, 0, en.z); ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.beginPath(); ctx.ellipse(sh.sx, sh.sy, en.w * 0.5 * sh.s, en.w * 0.15 * sh.s, 0, 0, 6.28); ctx.fill(); }
     const w = en.w * p.s, h = en.h * p.s;
     const moving = en.dying ? 0 : en.speedMul;
     const lurch = en.dying ? 0 : (en.wolf ? -Math.max(0, Math.sin(en.bob)) * h * (en.quad ? 0.25 : 0.12) * Math.max(0, moving - 0.5) : Math.sin(en.bob) * h * 0.035 * moving);
     const sway = en.dying ? 0 : en.tilt;
     const squash = en.dying ? 1 : 1 - Math.max(0, en.speedMul - 1) * (en.wolf ? 0.03 : 0.06);
     ctx.save(); ctx.globalAlpha = alpha;
-    ctx.translate(p.sx, p.sy + lurch);
-    ctx.rotate(sway);
+    ctx.translate(p.sx, p.sy + (en.lifted || en.falling ? 0 : lurch));
+    ctx.rotate(en.lifted ? Math.sin(en.bob * 0.5) * 0.18 : (en.falling ? en.fallV * 0.08 : sway));
     ctx.scale(1 + (1 - squash) * 0.5, squash);
     if (en.dying && !en.reached) ctx.rotate((en.dying) * 1.4 * (en.x < 0 ? -1 : 1));
     // Shadow (stays on the ground even mid-leap)
@@ -2772,6 +2868,22 @@
     ctx.beginPath(); ctx.ellipse(gp.sx, gp.sy, BLAST_RADIUS * p.s * k, BLAST_RADIUS * p.s * k * 0.4, 0, 0, 6.28); ctx.stroke();
     ctx.restore();
   }
+  function drawBalloon(b) {
+    const p = project(b.x, b.y, b.z), r = Math.max(6, b.r * 0.75 * p.s);
+    // rope down to whatever it's lifting (or to the ground)
+    const en = b.enemy;
+    const anchor = en && en.lifted ? project(en.x, (en.baseY || 0) + (en.liftY || 0) + en.h * 0.72, en.z) : project(b.x, Math.max(0, b.y - 1.3), b.z);
+    ctx.strokeStyle = '#c9a76a'; ctx.lineWidth = Math.max(1, p.s * 0.025);
+    ctx.beginPath(); ctx.moveTo(anchor.sx, anchor.sy); ctx.quadraticCurveTo(anchor.sx + Math.sin(b.bob) * r * 0.2, (anchor.sy + p.sy) / 2, p.sx, p.sy + r * 1.15); ctx.stroke();
+    // knot
+    ctx.fillStyle = '#7a4a2a'; ctx.beginPath(); ctx.moveTo(p.sx - r * 0.12, p.sy + r * 1.15); ctx.lineTo(p.sx + r * 0.12, p.sy + r * 1.15); ctx.lineTo(p.sx, p.sy + r * 0.95); ctx.closePath(); ctx.fill();
+    // balloon body with a highlight
+    const g = ctx.createRadialGradient(p.sx - r * 0.3, p.sy - r * 0.35, r * 0.1, p.sx, p.sy, r * 1.1);
+    g.addColorStop(0, '#ffd1dc'); g.addColorStop(0.45, '#e8647e'); g.addColorStop(1, '#8a2338');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(p.sx, p.sy, r, r * 1.15, 0, 0, 6.28); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.beginPath(); ctx.ellipse(p.sx - r * 0.35, p.sy - r * 0.45, r * 0.18, r * 0.3, -0.5, 0, 6.28); ctx.fill();
+    if (isDark()) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = 'rgba(255,120,150,.12)'; ctx.beginPath(); ctx.arc(p.sx, p.sy, r * 1.6, 0, 6.28); ctx.fill(); ctx.restore(); }
+  }
   function drawCritter(c) {
     const p = project(c.x, c.y, c.z);
     const col = REWARDS[c.reward].color;
@@ -2838,6 +2950,12 @@
     const ang = Math.atan2(q.sy - p.sy, q.sx - p.sx);
     ctx.save(); ctx.translate(p.sx, p.sy); ctx.rotate(ang);
     if (a.fire) { ctx.fillStyle = 'rgba(255,140,40,.45)'; ctx.beginPath(); ctx.arc(0, 0, Math.max(5, p.s * 0.2), 0, 6.28); ctx.fill(); }
+    if (a.balloon) {
+      const br = Math.max(4, p.s * 0.3);
+      ctx.strokeStyle = '#c9a76a'; ctx.lineWidth = Math.max(1, p.s * 0.02);
+      ctx.beginPath(); ctx.moveTo(-len, 0); ctx.quadraticCurveTo(-len * 1.6, -br * 0.8, -len * 2.1, -br * 1.6); ctx.stroke();
+      ctx.fillStyle = '#e8647e'; ctx.beginPath(); ctx.ellipse(-len * 2.1, -br * 1.6 - br * 0.6, br * 0.6, br * 0.7, 0, 0, 6.28); ctx.fill();
+    }
     if (a.bomb) { ctx.fillStyle = '#1a1416'; ctx.beginPath(); ctx.arc(-len * 0.15, 0, Math.max(3, p.s * 0.12), 0, 6.28); ctx.fill(); ctx.fillStyle = '#ffd37a'; ctx.beginPath(); ctx.arc(-len * 0.15 - Math.max(3, p.s * 0.12), -Math.max(2, p.s * 0.08), Math.max(1.5, p.s * 0.04), 0, 6.28); ctx.fill(); }
     if (a.silver) { ctx.fillStyle = 'rgba(207,230,255,.5)'; ctx.beginPath(); ctx.arc(0, 0, Math.max(4, p.s * 0.15), 0, 6.28); ctx.fill(); }
     ctx.strokeStyle = a.silver ? '#e6f0ff' : '#c9a76a'; ctx.lineWidth = Math.max(1.5, p.s * 0.03);
@@ -2977,6 +3095,15 @@
       shaft.addColorStop(0, '#6e4a26'); shaft.addColorStop(0.45, '#d4a86a'); shaft.addColorStop(1, '#5e3f20');
       ctx.strokeStyle = shaft; ctx.lineWidth = bw; ctx.lineCap = 'butt';
       ctx.beginPath(); ctx.moveTo(cx, tailY); ctx.lineTo(cx, headY + 4); ctx.stroke();
+      // a balloon tethered to the bolt when a balloon bolt is loaded
+      if (s.arrowType === 'balloon' && s.balloonAmmo > 0) {
+        const bx = cx + bw * 4 + Math.sin(performance.now() / 500) * 4, by = headY - hh * 2.4 + Math.sin(performance.now() / 700) * 5, br = bw * 2.6;
+        ctx.strokeStyle = '#c9a76a'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(cx, tailY); ctx.quadraticCurveTo(cx + bw * 2, (tailY + by) / 2, bx, by + br * 1.2); ctx.stroke();
+        const g = ctx.createRadialGradient(bx - br * 0.3, by - br * 0.35, br * 0.1, bx, by, br * 1.1);
+        g.addColorStop(0, '#ffd1dc'); g.addColorStop(0.45, '#e8647e'); g.addColorStop(1, '#8a2338');
+        ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(bx, by, br, br * 1.15, 0, 0, 6.28); ctx.fill();
+      }
       // powder keg behind the head when an explosive bolt is loaded
       if (s.arrowType === 'bomb' && s.bombAmmo > 0) {
         const ky = headY + hh * 0.9, kr = bw * 1.6;
@@ -3104,6 +3231,11 @@
     openMenu();
   });
   document.getElementById('barrelBtn').addEventListener('click', rollBarrel);
+  document.getElementById('balloonBtn').addEventListener('click', () => {
+    if (!state.running || state.balloonAmmo <= 0) return;
+    state.arrowType = state.arrowType === 'balloon' ? 'normal' : 'balloon';
+    updateFireBtn();
+  });
   document.getElementById('bombBtn').addEventListener('click', () => {
     if (!state.running || state.bombAmmo <= 0) return;
     state.arrowType = state.arrowType === 'bomb' ? 'normal' : 'bomb';
@@ -3127,6 +3259,10 @@
     el.innerHTML = html;
   }
   function updateFireBtn() {
+    const lb = document.getElementById('balloonBtn');
+    document.getElementById('balloonCount').textContent = state.balloonAmmo;
+    lb.setAttribute('aria-pressed', state.arrowType === 'balloon' ? 'true' : 'false');
+    lb.disabled = state.balloonAmmo <= 0;
     const bb = document.getElementById('bombBtn');
     document.getElementById('bombCount').textContent = state.bombAmmo;
     bb.setAttribute('aria-pressed', state.arrowType === 'bomb' ? 'true' : 'false');
