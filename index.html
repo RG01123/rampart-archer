@@ -134,6 +134,7 @@
     <button id="campBtn" class="secondary">Siege camp</button>
     <button id="raidBtn" class="secondary">Night raid</button>
     <button id="citadelBtn" class="secondary">The citadel</button>
+    <button id="escortBtn" class="secondary">The escort</button>
     <button id="startBtn" class="secondary">Hold the wall</button>
     <button id="rangeBtn" class="secondary">Target range</button>
     <button id="howBtn" class="link" type="button" aria-expanded="false">How to play</button>
@@ -146,6 +147,7 @@
       <p>Barrels roll through when the pack is close. A fire bolt blows one up, and anything near it. Roll your own from the wall with the barrel button, two per wave.</p>
       <p>The target range gives you 20 bolts and a mix of still and moving targets. Rings score 10, 7, 5 and 3; moving targets count double.</p>
       <p>The siege camp is a night raid lit by torches: the pack comes as black shapes with burning eyes. The pause button opens the stage menu at any time.</p>
+      <p>The escort: a princess crosses the meadow toward your gate. The dead go for her, not the wall. Kill whoever grabs her and she walks on; keep your own bolts and bombs clear of her. Lose her to the treeline and it's over.</p>
       <p>The citadel: archers hold the ledges at different ranges and loose flaming arrows at you. Shoot the arrows out of the air, or the archers themselves. Ledges block your bolts, so find the angle.</p>
       <p>Look around: hold the edge arrows, or drag with two fingers. Tap the compass to face forward again. Aiming follows where you look.</p>
       <p>Sound can be switched off from the pause menu. On iPhone, the ringer switch must be on to hear it.</p>
@@ -166,6 +168,7 @@
       <button class="secondary" data-level="4">Siege camp</button>
       <button class="secondary" data-level="5">Night raid</button>
       <button class="secondary" data-level="6">The citadel</button>
+      <button class="secondary" data-level="7">The escort</button>
       <button class="secondary" data-level="1">The field</button>
       <button class="secondary" data-level="3">Target range</button>
     </div>
@@ -229,6 +232,8 @@
   const TREE_BURN = 10;         // seconds a tree burns
   const isDark = () => state && (state.level === 2 || state.level === 4 || state.level === 5);   // night stages with dynamic light
   const isCitadel = () => state && state.level === 6;
+  const isEscort = () => state && state.level === 7;
+  const PRINCESS_HP = 3, PRINCESS_SPEED = 1.2, DRAG_SPEED = 1.6, LOST_Z = 42;
   // Ledges the archers stand on: x range, height, depth from the wall, thickness
   const LEDGES = [
     // tier 1: low outcrops near the wall, off to the sides
@@ -305,7 +310,7 @@
       atArmed: false, atCooldown: 0,
       aim: null,  // { ax, ay, cx, cy }
       shake: 0,
-      level: 1, trees: [], targets: [], bolts: 0, rangeDone: false, incoming: [], wallFlash: 0,
+      level: 1, trees: [], targets: [], bolts: 0, rangeDone: false, incoming: [], wallFlash: 0, princess: null,
     };
   }
 
@@ -378,6 +383,53 @@
     }
     state.trees.sort((a, b) => b.z - a.z);
   }
+  function enterEscort() {
+    state.level = 7;
+    state.princess = { x: 0, z: 36, hp: PRINCESS_HP, grabbedBy: null, hit: 0, bob: 0, safe: false, restT: 0, lantern: 0 };
+  }
+  function princessStartWave() {
+    const pr = state.princess;
+    pr.x = (Math.random() * 2 - 1) * 2; pr.z = Math.min(40, 30 + state.wave * 2); pr.grabbedBy = null; pr.safe = false; pr.restT = 0;
+  }
+  function updatePrincess(dt) {
+    const s = state, pr = s.princess; if (!pr) return;
+    pr.bob += dt * 4; pr.lantern += dt;
+    if (pr.hit > 0) pr.hit -= dt;
+    if (pr.safe) { pr.restT += dt; return; }
+    if (pr.grabbedBy && (pr.grabbedBy.dying || pr.grabbedBy.lifted)) { pr.grabbedBy = null; floatText(pr.x, 2.2, pr.z, 'Free!'); }
+    if (pr.grabbedBy) {
+      // dragged back toward the treeline
+      const g = pr.grabbedBy;
+      pr.z += DRAG_SPEED * dt; pr.x += (g.x - pr.x) * 2 * dt;
+      g.z = pr.z + 0.6; g.x = pr.x + 0.5;
+      if (pr.z >= LOST_Z) { gameOver(); return; }
+    } else {
+      // walks toward the gate, hesitating a little when something is close
+      let near = false; for (const en of s.enemies) if (!en.dying && Math.hypot(en.x - pr.x, en.z - pr.z) < 3) near = true;
+      pr.z -= PRINCESS_SPEED * (near ? 0.5 : 1) * dt; pr.x += (0 - pr.x) * 0.3 * dt;
+      if (pr.z <= WALL_Z + 0.4) {
+        pr.safe = true; pr.z = WALL_Z + 0.4;
+        const bonus = 150 + s.wave * 50; s.score += bonus; scoreEl.textContent = s.score;
+        showBanner('She made it  +' + bonus, 1800); buzz([20, 30, 20, 30, 60]); SFX.ui();
+        // clear the field: whoever's left loses interest
+        for (const en of s.enemies) if (!en.dying) { en.dying = 0.01; }
+        s.spawnQueue = [];
+      }
+    }
+    // enemies: go for her, grab her on contact
+    for (const en of s.enemies) {
+      if (en.dying || en.lifted || en.falling) continue;
+      if (pr.grabbedBy === en) continue;
+      if (!pr.grabbedBy && Math.hypot(en.x - pr.x, en.z - pr.z) < 0.9) { pr.grabbedBy = en; floatText(pr.x, 2.2, pr.z, 'Grabbed!'); buzz([40, 40, 40]); s.shake = Math.max(s.shake, 0.6); }
+    }
+  }
+  function hurtPrincess(amount, why) {
+    const pr = state.princess; if (!pr || pr.safe) return;
+    pr.hp -= amount; pr.hit = 0.3; state.shake = Math.max(state.shake, 0.8); buzz([60, 30, 60]);
+    burst(pr.x, 1.2, pr.z, 10, '#ffd1dc'); floatText(pr.x, 2.4, pr.z, why || 'Hurt');
+    updateHP();
+    if (pr.hp <= 0) gameOver();
+  }
   function enterRange() {
     state.level = 3;
     state.bolts = RANGE_BOLTS; state.rangeDone = false;
@@ -427,7 +479,8 @@
       return;
     }
     state.spawnQueue = buildWave(state.wave);
-    state.spawnTimer = 1.2;
+    state.spawnTimer = isEscort() ? 2.5 : 1.2;
+    if (isEscort()) princessStartWave();
     waveEl.textContent = 'Wave ' + state.wave;
     state.fireAmmo = fireBoltsForWave(state.wave);
     state.bombAmmo = bombBoltsForWave(state.wave);
@@ -459,8 +512,10 @@
       showBanner('A howl in the dark', 1400); SFX.howl((Math.random() * 2 - 1) * 7, SPAWN_Z);
     }
     const speedMul = 1 + (state.wave - 1) * 0.07;
+    const ex = isEscort() ? (Math.random() < 0.5 ? -1 : 1) * (5 + Math.random() * 4) : (Math.random() * 2 - 1) * 7;
+    const ez = isEscort() && state.princess ? Math.min(SPAWN_Z, state.princess.z + 4 + Math.random() * 8) : SPAWN_Z + Math.random() * 6;
     state.enemies.push({
-      type, hp: t.hp, x: (Math.random() * 2 - 1) * 7, z: SPAWN_Z + Math.random() * 6,
+      type, hp: t.hp, x: ex, z: ez,
       speed: t.speed * speedMul * (0.9 + Math.random() * 0.2), w: t.w, h: t.h,
       color: t.color, cloth: t.cloth, score: t.score, dmg: t.dmg, dying: 0, hit: 0, bob: Math.random() * 6.28,
       lean: t.wolf ? 0 : (Math.random() * 2 - 1) * 0.25,   // head lolls to one side (zombies only)
@@ -992,8 +1047,8 @@
         s.spawnTimer = Math.max(0.5, 1.9 - s.wave * 0.12) * (0.7 + Math.random() * 0.6);
       }
     } else if (!s.enemies.some(en => !en.dying)) {
-      s.waveClearTimer += dt;
-      if (s.waveClearTimer > 2.2) { s.waveClearTimer = 0; startWave(); }
+      if (isEscort() && s.princess && !s.princess.safe) { /* she still has to reach the gate */ }
+      else { s.waveClearTimer += dt; if (s.waveClearTimer > 2.2) { s.waveClearTimer = 0; startWave(); } }
     }
 
     // Enemies
@@ -1011,6 +1066,7 @@
         // flames pour off the body
         if (Math.random() < 0.6) flame(en.x + (Math.random() - 0.5) * en.w * 0.6, (en.baseY || 0) + Math.random() * en.h, en.z);
         for (const b of s.barrels) if (!b.dead && Math.abs(b.x - en.x) < 1.0 && Math.abs(b.z - en.z) < 1.0) explodeBarrel(b);
+        if (isEscort() && s.princess && !s.princess.safe && Math.hypot(s.princess.x - en.x, s.princess.z - en.z) < 1.0 && Math.random() < dt * 0.8) hurtPrincess(1, 'Burned');
         // spread to neighbours
         for (const o of s.enemies) {
           if (o === en || o.dying || o.burning > 0) continue;
@@ -1042,6 +1098,18 @@
       en.veer += (en.veerTarget - en.veer) * Math.min(1, dt * 3);
       en.tilt += ((en.veer * 0.12) - en.tilt) * Math.min(1, dt * 4);   // lean into the stumble
       en.bob += dt * en.speed * 3 * en.speedMul;
+      if (isEscort() && s.princess && !s.princess.safe) {
+        // head for the princess (or hold on to her)
+        const pr = s.princess;
+        if (pr.grabbedBy === en) { /* position is set by the drag */ }
+        else {
+          const dx = pr.x - en.x, dz = pr.z - en.z, d = Math.hypot(dx, dz) || 1;
+          en.x += (dx / d) * en.speed * en.speedMul * dt + en.veer * 0.4 * en.speedMul * dt;
+          en.z += (dz / d) * en.speed * en.speedMul * dt;
+        }
+        en.x = Math.max(-9, Math.min(9, en.x));
+        continue;
+      }
       en.z -= en.speed * en.speedMul * dt;
       en.x += en.veer * en.speedMul * dt + (0 - en.x) * 0.03 * dt;   // veer, plus slight drift toward the gate
       en.x = Math.max(-8, Math.min(8, en.x));
@@ -1054,6 +1122,7 @@
     }
     s.enemies = s.enemies.filter(en => !(en.dying > 1.0));
     updateBalloons(dt);
+    if (isEscort()) { updatePrincess(dt); if (!s.running) return; }
 
     // Incoming flaming arrows (citadel)
     for (const inc of s.incoming) {
@@ -1123,6 +1192,14 @@
           }
         }
         if (blocked) continue;
+      }
+      // The princess: your own bolt hurts her
+      if (isEscort() && s.princess && !s.princess.safe && a.life >= LAUNCH_BLEND) {
+        const pr = s.princess;
+        if (Math.abs(a.x - pr.x) < 0.45 && Math.abs(a.z - pr.z) < 0.7 && a.y > 0 && a.y < 1.7) {
+          if (a.bomb) { bombDetonate(a); continue; }
+          a.dead = true; hurtPrincess(1, 'You hit her!'); if (a.fire) hurtPrincess(0, ''); continue;
+        }
       }
       // Balloons: any bolt pops one (fire drops them burning)
       {
@@ -1256,6 +1333,7 @@
       }
       if (isDark() && i > 22) for (const tr of state.trees) if (treeHit(tr, x, y, z)) return null;
       for (const b of state.barrels) if (!b.dead && Math.abs(x - b.x) < b.r + 0.15 && Math.abs(z - b.z) < b.r + 0.4 && y < b.r * 2.1) return { kind: 'barrel', o: b };
+      if (isEscort() && state.princess && !state.princess.safe && Math.abs(x - state.princess.x) < 0.45 && Math.abs(z - state.princess.z) < 0.7 && y > 0 && y < 1.7) return null;
       for (const b of state.balloons) if (!b.dead && Math.abs(x - b.x) < b.r && Math.abs(y - b.y) < b.r && Math.abs(z - b.z) < b.r + 0.4) return { kind: 'balloon', o: b };
       for (const en of state.enemies) {
         if (en.dying) continue;
@@ -1427,6 +1505,7 @@
     for (const c of s.critters) if (!c.hit && Math.hypot(c.x - x, c.z - z) < radius * 0.6 && Math.abs(c.y - y) < 2.5) { c.hit = 0.01; }
     for (const inc of s.incoming) if (!inc.dead && Math.hypot(inc.x - x, inc.y - y, inc.z - z) < radius) { inc.dead = true; burst(inc.x, inc.y, inc.z, 8, '#ffd37a'); }
     for (const b of s.balloons) if (!b.dead && Math.hypot(b.x - x, b.y - y, b.z - z) < radius) popBalloon(b, true);
+    if (isEscort() && s.princess && !s.princess.safe && Math.hypot(s.princess.x - x, s.princess.z - z) < radius) hurtPrincess(2, 'Caught in the blast');
   }
   function explodeBarrel(b) {
     b.dead = true;
@@ -1648,7 +1727,7 @@
     for (const en of s.enemies) if (en.wolf && !en.dying && en.z < 18) { const k = Math.max(0, 1 - en.z / 18); wl += k * k; wx += en.x * k; wn += k; }
     SFX.setWolves(Math.min(1, wl), wn ? wx / wn : 0);
     // ambience by stage
-    const kind = !s.running ? null : (s.level === 1 ? 'field' : s.level === 2 ? 'forest' : s.level === 3 ? 'range' : s.level === 4 ? 'camp' : s.level === 5 ? 'raid' : 'citadel');
+    const kind = !s.running ? null : ((s.level === 1 || s.level === 7) ? 'field' : s.level === 2 ? 'forest' : s.level === 3 ? 'range' : s.level === 4 ? 'camp' : s.level === 5 ? 'raid' : 'citadel');
     SFX.ambience(kind);
   }
   function render() {
@@ -1665,6 +1744,8 @@
     if (shifted) { ctx.fillStyle = s.level === 3 ? '#8fb0c4' : (s.level === 6 ? '#161d2e' : (s.level === 2 ? '#0a1a24' : (s.level === 5 ? '#02040a' : (s.level === 4 ? '#070b14' : '#0d1030')))); ctx.fillRect(-20, -20, W + 40, H + 40); ctx.save(); ctx.translate(-Math.tan(vyaw) * focal() * 0.3, 0); }
     if (s.level === 3) {
       drawRangeBackdrop(hy);
+    } else if (s.level === 7) {
+      drawEscortBackdrop(hy);
     } else if (s.level === 6) {
       drawCitadelBackdrop(hy);
     } else if (isCamp()) {
@@ -1724,6 +1805,7 @@
     for (const a of s.arrows) items.push({ z: a.z, kind: 'arrow', o: a });
     for (const c of s.critters) items.push({ z: c.z, kind: 'critter', o: c });
     for (const b of s.balloons) items.push({ z: b.z, kind: 'balloon', o: b });
+    if (s.level === 7 && s.princess) items.push({ z: s.princess.z, kind: 'princess', o: s.princess });
     for (const b of s.barrels) items.push({ z: b.z, kind: 'barrel', o: b });
     for (const bl of s.blasts) items.push({ z: bl.z - 0.01, kind: 'blast', o: bl });
     for (const st of s.stuck) items.push({ z: st.z, kind: 'stuck', o: st });
@@ -1745,6 +1827,7 @@
       else if (it.kind === 'enemy') drawEnemy(it.o);
       else if (it.kind === 'critter') drawCritter(it.o);
       else if (it.kind === 'balloon') drawBalloon(it.o);
+      else if (it.kind === 'princess') drawPrincess(it.o);
       else if (it.kind === 'barrel') drawBarrel(it.o);
       else if (it.kind === 'blast') drawBlast(it.o);
       else if (it.kind === 'arrow') drawArrow(it.o);
@@ -1842,6 +1925,7 @@
       ctx.fillStyle = en.type === 'alpha' || en.type === 'hulk' ? '#ff5a3a' : '#e8392b';
       ctx.beginPath(); ctx.arc(cx + Math.sin(ang) * d, cy - Math.cos(ang) * d, Math.max(2, r * 0.07), 0, 6.28); ctx.fill();
     }
+    if (state.princess && state.level === 7) { const pr = state.princess, d = Math.min(1, Math.hypot(pr.x, pr.z) / SPAWN_Z) * r * 0.9, ang = Math.atan2(pr.x, pr.z); ctx.fillStyle = '#ffd37a'; ctx.beginPath(); ctx.arc(cx + Math.sin(ang) * d, cy - Math.cos(ang) * d, Math.max(2.5, r * 0.09), 0, 6.28); ctx.fill(); }
     for (const inc of state.incoming) {
       const d = Math.min(1, Math.hypot(inc.x, inc.z) / SPAWN_Z) * r * 0.9, ang = Math.atan2(inc.x, inc.z);
       ctx.fillStyle = '#ffb347'; ctx.beginPath(); ctx.arc(cx + Math.sin(ang) * d, cy - Math.cos(ang) * d, Math.max(1.5, r * 0.05), 0, 6.28); ctx.fill();
@@ -2294,6 +2378,84 @@
     ctx.restore();
     // shadow on the ledge
     ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(p.sx, p.sy, w * 0.5, w * 0.14, 0, 0, 6.28); ctx.fill();
+  }
+
+  // ---- Escort: a moonlit meadow between the treeline and the gate ----
+  function drawEscortBackdrop(hy) {
+    const sky = ctx.createLinearGradient(0, 0, 0, hy);
+    sky.addColorStop(0, '#0a0f2a'); sky.addColorStop(0.6, '#1e2a52'); sky.addColorStop(1, '#5a4a6a');
+    ctx.fillStyle = sky; ctx.fillRect(-20, -20, W + 40, hy + 20);
+    const r = srand(4.4); ctx.fillStyle = 'rgba(230,235,250,.5)';
+    for (let i = 0; i < 45; i++) ctx.fillRect(r() * W, r() * hy * 0.7, 1.2, 1.2);
+    const mx = W * 0.3, my = hy * 0.3, mr = W * 0.08;
+    const mg = ctx.createRadialGradient(mx, my, mr * 0.3, mx, my, mr * 3);
+    mg.addColorStop(0, 'rgba(220,225,255,.4)'); mg.addColorStop(1, 'rgba(220,225,255,0)');
+    ctx.fillStyle = mg; ctx.beginPath(); ctx.arc(mx, my, mr * 3, 0, 6.28); ctx.fill();
+    ctx.fillStyle = '#e8ecf8'; ctx.beginPath(); ctx.arc(mx, my, mr, 0, 6.28); ctx.fill();
+    // hills + treeline
+    ctx.fillStyle = '#1a2240';
+    ctx.beginPath(); ctx.moveTo(-20, hy); ctx.quadraticCurveTo(W * 0.3, hy * 0.72, W * 0.55, hy * 0.84); ctx.quadraticCurveTo(W * 0.8, hy * 0.7, W + 20, hy * 0.86); ctx.lineTo(W + 20, hy); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#0d1226';
+    ctx.beginPath(); ctx.moveTo(-20, hy + 1);
+    for (let x = -20; x <= W + 20; x += 12) ctx.lineTo(x, hy - 4 - Math.abs(Math.sin(x * 0.19) * 10 + Math.sin(x * 0.06) * 6));
+    ctx.lineTo(W + 20, hy + 1); ctx.closePath(); ctx.fill();
+    // meadow
+    const gnd = ctx.createLinearGradient(0, hy, 0, H);
+    gnd.addColorStop(0, '#2a3a44'); gnd.addColorStop(0.35, '#22303a'); gnd.addColorStop(1, '#141c22');
+    ctx.fillStyle = gnd; ctx.fillRect(-20, hy, W + 40, H - hy + 20);
+    // the path she follows
+    const a = project(0, 0, 1.5), b = project(0, 0, 40);
+    const lane = ctx.createLinearGradient(0, b.sy, 0, a.sy);
+    lane.addColorStop(0, 'rgba(160,150,130,0)'); lane.addColorStop(1, 'rgba(160,150,130,.25)');
+    ctx.fillStyle = lane; ctx.beginPath(); ctx.moveTo(b.sx - 1.2 * b.s, b.sy); ctx.lineTo(b.sx + 1.2 * b.s, b.sy); ctx.lineTo(a.sx + 1.6 * a.s, a.sy); ctx.lineTo(a.sx - 1.6 * a.s, a.sy); ctx.closePath(); ctx.fill();
+    // grass tufts
+    ctx.strokeStyle = 'rgba(90,120,100,.5)'; ctx.lineWidth = 1;
+    const gr = srand(8.8);
+    for (let i = 0; i < 120; i++) { const z = 2 + gr() * 36, x = (gr() * 2 - 1) * 14; if (Math.abs(x) < 1.8) continue; const q = project(x, 0, z); if (q.s < 5) continue; ctx.beginPath(); ctx.moveTo(q.sx, q.sy); ctx.lineTo(q.sx + (gr() - 0.5) * q.s * 0.2, q.sy - q.s * (0.2 + gr() * 0.3)); ctx.stroke(); }
+    // the "lost" line at the treeline edge, faint
+    const lz = project(0, 0, LOST_Z);
+    ctx.strokeStyle = 'rgba(255,80,60,.18)'; ctx.setLineDash([6, 8]); ctx.beginPath(); ctx.moveTo(0, lz.sy); ctx.lineTo(W, lz.sy); ctx.stroke(); ctx.setLineDash([]);
+  }
+  function drawPrincess(pr) {
+    const p = project(pr.x, 0, pr.z), u = p.s, h = 1.65 * u, w = 0.55 * u;
+    const walking = !pr.safe && !pr.grabbedBy, step = walking ? Math.sin(pr.bob) : 0;
+    const flinch = pr.hit > 0;
+    // lantern glow on the ground
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    const fl = 0.85 + Math.sin(pr.lantern * 9) * 0.08 + Math.sin(pr.lantern * 23) * 0.07;
+    const g = ctx.createRadialGradient(p.sx, p.sy, 1, p.sx, p.sy, u * 2.6 * fl);
+    g.addColorStop(0, 'rgba(255,200,120,.35)'); g.addColorStop(1, 'rgba(255,160,60,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(p.sx, p.sy, u * 2.6 * fl, u * 1.1 * fl, 0, 0, 6.28); ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(p.sx, p.sy, w * 0.7, w * 0.2, 0, 0, 6.28); ctx.fill();
+    ctx.save(); ctx.translate(p.sx, p.sy);
+    if (pr.grabbedBy) ctx.rotate(Math.sin(pr.bob * 1.5) * 0.12);
+    const dress = flinch ? '#ffffff' : '#cfe0f5', dressDark = flinch ? '#ffffff' : '#7a93b8', skin = flinch ? '#ffffff' : '#f2d2b8', hair = flinch ? '#ffffff' : '#5a3a1a';
+    // dress: a long gown widening to the hem, swaying with the step
+    ctx.fillStyle = dress;
+    ctx.beginPath(); ctx.moveTo(-w * 0.25, -h * 0.62); ctx.lineTo(w * 0.25, -h * 0.62); ctx.lineTo(w * 0.62 + step * w * 0.08, 0); ctx.lineTo(-w * 0.62 + step * w * 0.08, 0); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = dressDark; ctx.beginPath(); ctx.moveTo(-w * 0.1, -h * 0.62); ctx.lineTo(w * 0.1, -h * 0.62); ctx.lineTo(w * 0.18 + step * w * 0.08, 0); ctx.lineTo(-w * 0.18 + step * w * 0.08, 0); ctx.closePath(); ctx.fill();
+    // bodice + arms
+    ctx.fillStyle = dressDark; roundRect(-w * 0.26, -h * 0.74, w * 0.52, h * 0.14, w * 0.1); ctx.fill();
+    ctx.strokeStyle = skin; ctx.lineWidth = Math.max(2, w * 0.14); ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-w * 0.26, -h * 0.7); ctx.lineTo(-w * 0.42, -h * 0.5 + step * h * 0.03); ctx.stroke();   // free arm
+    ctx.beginPath(); ctx.moveTo(w * 0.26, -h * 0.7); ctx.lineTo(w * 0.46, -h * 0.58); ctx.stroke();                         // lantern arm
+    // head, hair, small crown
+    ctx.fillStyle = skin; ctx.beginPath(); ctx.arc(0, -h * 0.86, w * 0.24, 0, 6.28); ctx.fill();
+    ctx.fillStyle = hair; ctx.beginPath(); ctx.arc(0, -h * 0.9, w * 0.26, Math.PI, 0); ctx.fill(); ctx.fillRect(-w * 0.26, -h * 0.9, w * 0.1, h * 0.2); ctx.fillRect(w * 0.16, -h * 0.9, w * 0.1, h * 0.2);
+    ctx.fillStyle = '#f0c052'; for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.moveTo(i * w * 0.1 - w * 0.06, -h * 0.98); ctx.lineTo(i * w * 0.1, -h * 1.1); ctx.lineTo(i * w * 0.1 + w * 0.06, -h * 0.98); ctx.closePath(); ctx.fill(); }
+    // lantern
+    const lx = w * 0.5, ly = -h * 0.5 + Math.sin(pr.lantern * 3) * h * 0.02;
+    ctx.strokeStyle = '#3a2a1a'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(w * 0.46, -h * 0.58); ctx.lineTo(lx, ly - h * 0.08); ctx.stroke();
+    ctx.fillStyle = '#2a1f16'; ctx.fillRect(lx - w * 0.1, ly - h * 0.08, w * 0.2, h * 0.14);
+    ctx.fillStyle = '#ffd37a'; ctx.fillRect(lx - w * 0.07, ly - h * 0.06, w * 0.14, h * 0.1);
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    const lg = ctx.createRadialGradient(lx, ly, 1, lx, ly, w * 0.9 * fl);
+    lg.addColorStop(0, 'rgba(255,210,120,.7)'); lg.addColorStop(1, 'rgba(255,150,50,0)');
+    ctx.fillStyle = lg; ctx.beginPath(); ctx.arc(lx, ly, w * 0.9 * fl, 0, 6.28); ctx.fill(); ctx.restore();
+    ctx.restore();
+    // hearts above her
+    for (let i = 0; i < PRINCESS_HP; i++) { ctx.fillStyle = i < pr.hp ? '#e8647e' : 'rgba(0,0,0,.4)'; const hx = p.sx - w * 0.5 + i * w * 0.5, hy2 = p.sy - h * 1.25; ctx.beginPath(); ctx.arc(hx - w * 0.08, hy2, w * 0.1, 0, 6.28); ctx.arc(hx + w * 0.08, hy2, w * 0.1, 0, 6.28); ctx.fill(); ctx.beginPath(); ctx.moveTo(hx - w * 0.18, hy2 + w * 0.02); ctx.lineTo(hx, hy2 + w * 0.22); ctx.lineTo(hx + w * 0.18, hy2 + w * 0.02); ctx.closePath(); ctx.fill(); }
   }
 
   // ---- Range: a practice yard at first light ----
@@ -3163,6 +3325,12 @@
 
   // ---------- UI / flow ----------
   function updateHP() {
+    if (isEscort() && state.princess) {
+      hpNumEl.textContent = state.princess.hp;
+      hpBar.style.width = (Math.max(0, state.princess.hp) / PRINCESS_HP * 100) + '%';
+      hpEl.classList.toggle('low', state.princess.hp <= 1);
+      return;
+    }
     hpNumEl.textContent = state.hp;
     hpBar.style.width = (state.hp / MAX_HP * 100) + '%';
     hpEl.classList.toggle('low', state.hp <= 3);
@@ -3179,6 +3347,7 @@
     state.level = level;
     if (level === 2) enterForest();
     if (level === 4 || level === 5) enterCamp(level);
+    if (level === 7) enterEscort();
     if (level === 6) state.level = 6;
     scoreEl.textContent = '0'; updateHP(); updateBuffs();
     startScr.classList.add('hidden'); overScr.classList.add('hidden'); hud.style.display = 'block';
@@ -3191,10 +3360,10 @@
     if (state.score > best) { best = state.score; try { localStorage.setItem('rampart-best', String(best)); } catch (e) {} }
     document.getElementById('overScore').textContent = state.score;
     lastLevel = state.level;
-    const names = { 1: 'the field', 2: 'the forest', 4: 'the camp', 5: 'the raid', 6: 'the citadel' };
+    const names = { 1: 'the field', 2: 'the forest', 4: 'the camp', 5: 'the raid', 6: 'the citadel', 7: 'the escort' };
     document.getElementById('againBtn').textContent = state.level === 1 ? 'Hold the wall again' : 'Replay ' + names[state.level];
     document.getElementById('switchBtn').textContent = 'Choose a stage';
-    document.getElementById('overTitle').textContent = state.level === 6 ? 'The wall is burning' : (state.level === 1 ? 'The dead are over the wall' : 'The pack is over the wall');
+    document.getElementById('overTitle').textContent = state.level === 7 ? (state.princess && state.princess.hp <= 0 ? 'The princess fell' : 'The princess was taken') : state.level === 6 ? 'The wall is burning' : (state.level === 1 ? 'The dead are over the wall' : 'The pack is over the wall');
     document.getElementById('overWave').textContent = 'Survived through wave ' + state.wave + ' in ' + names[state.level];
     document.getElementById('overBest').textContent = 'Best: ' + best;
     hud.style.display = 'none'; overScr.classList.remove('hidden');
@@ -3206,6 +3375,7 @@
   document.getElementById('campBtn').addEventListener('click', () => startGame(4));
   document.getElementById('raidBtn').addEventListener('click', () => startGame(5));
   document.getElementById('citadelBtn').addEventListener('click', () => startGame(6));
+  document.getElementById('escortBtn').addEventListener('click', () => startGame(7));
   // Stage menu: opened by the pause button during play
   const menuScr = document.getElementById('menu');
   function openMenu() {
