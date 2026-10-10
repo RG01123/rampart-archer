@@ -139,7 +139,7 @@
       <p>The citadel: archers hold the ledges at different ranges and loose flaming arrows at you. Shoot the arrows out of the air, or the archers themselves. Ledges block your bolts, so find the angle.</p>
       <p>Look around: hold the edge arrows, or drag with two fingers. Tap the compass to face forward again. Aiming follows where you look.</p>
       <p>Sound can be switched off from the pause menu. On iPhone, the ringer switch must be on to hear it.</p>
-      <p>Arrow time: tap the stopwatch to arm it, then shoot. If the bolt is going to connect, you ride it in slow motion.</p>
+      <p>Arrow time triggers on its own when a shot is going to be a headshot. Tap the stopwatch to arm it for any other shot. If the bolt is going to connect, you ride it in slow motion.</p>
     </div>
   </div>
 
@@ -497,10 +497,15 @@
       const arrow = { x: o.x, y: EYE_H - 0.1, z: o.z, vx: hv * Math.sin(yaw), vy: vel.vy, vz: hv * Math.cos(yaw), life: 0, fire: flaming, silver, tip };
       state.arrows.push(arrow); if (deg === 0) center = arrow;
     }
-    if (state.atArmed && center && !ride) {
+    if (center && !ride) {
       const hit = predictShot(vel);
-      if (hit) { state.atArmed = false; startRide(center, hit); updateAtBtn(); }
-      else showBanner('Nothing in the path', 900);
+      if (state.atArmed) {
+        if (hit) { state.atArmed = false; startRide(center, hit); updateAtBtn(); }
+        else showBanner('Nothing in the path', 900);
+      } else if (hit && hit.kind === 'enemy' && hit.head && state.atCooldown <= 0) {
+        // a predicted headshot rides automatically
+        startRide(center, hit); updateAtBtn();
+      }
     }
     updateBuffs();
     state.reload = 0.35;
