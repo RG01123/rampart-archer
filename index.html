@@ -135,6 +135,7 @@
     <button id="raidBtn" class="secondary">Night raid</button>
     <button id="citadelBtn" class="secondary">The citadel</button>
     <button id="escortBtn" class="secondary">The escort</button>
+    <button id="caravanBtn" class="secondary">The caravan</button>
     <button id="startBtn" class="secondary">Hold the wall</button>
     <button id="rangeBtn" class="secondary">Target range</button>
     <button id="howBtn" class="link" type="button" aria-expanded="false">How to play</button>
@@ -148,6 +149,7 @@
       <p>The target range gives you 20 bolts and a mix of still and moving targets. Rings score 10, 7, 5 and 3; moving targets count double.</p>
       <p>The siege camp is a night raid lit by torches: the pack comes as black shapes with burning eyes. The pause button opens the stage menu at any time.</p>
       <p>The escort: a princess crosses the meadow toward your gate. The dead go for her, not the wall. Kill whoever grabs her and she walks on; keep your own bolts and bombs clear of her. Lose her to the treeline and it's over.</p>
+      <p>The caravan: you ride the tailgate of a wagon down a valley road. The pack chases from behind and springs from the roadside; only the fast ones can catch you. Barrels drop off the back into their path. Reach the fort.</p>
       <p>The citadel: archers hold the ledges at different ranges and loose flaming arrows at you. Shoot the arrows out of the air, or the archers themselves. Ledges block your bolts, so find the angle.</p>
       <p>Look around: hold the edge arrows, or drag with two fingers. Tap the compass to face forward again. Aiming follows where you look.</p>
       <p>Sound can be switched off from the pause menu. On iPhone, the ringer switch must be on to hear it.</p>
@@ -169,6 +171,7 @@
       <button class="secondary" data-level="5">Night raid</button>
       <button class="secondary" data-level="6">The citadel</button>
       <button class="secondary" data-level="7">The escort</button>
+      <button class="secondary" data-level="8">The caravan</button>
       <button class="secondary" data-level="1">The field</button>
       <button class="secondary" data-level="3">Target range</button>
     </div>
@@ -233,6 +236,8 @@
   const isDark = () => state && (state.level === 2 || state.level === 4 || state.level === 5);   // night stages with dynamic light
   const isCitadel = () => state && state.level === 6;
   const isEscort = () => state && state.level === 7;
+  const isCaravan = () => state && state.level === 8;
+  const ROUTE_LEN = 1200, LEGS = 5;   // meters to the fort, in waves
   const PRINCESS_HP = 3, PRINCESS_SPEED = 1.2, DRAG_SPEED = 1.6, LOST_Z = 42;
   // Ledges the archers stand on: x range, height, depth from the wall, thickness
   const LEDGES = [
@@ -311,12 +316,21 @@
       aim: null,  // { ax, ay, cx, cy }
       shake: 0,
       level: 1, trees: [], targets: [], bolts: 0, rangeDone: false, incoming: [], wallFlash: 0, princess: null,
+      wagon: null, scenery: [],
     };
   }
 
   // ---------- Waves ----------
   function buildWave(n) {
     const q = [];
+    if (isCaravan()) {
+      const scouts = 3 + n * 2, stalkers = 1 + n, alphas = n >= 3 ? 1 : 0;
+      for (let i = 0; i < scouts; i++) q.push('scout');
+      for (let i = 0; i < stalkers; i++) q.push('stalker');
+      for (let i = 0; i < alphas; i++) q.push('alpha');
+      for (let i = q.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [q[i], q[j]] = [q[j], q[i]]; }
+      return q;
+    }
     if (isCitadel()) {
       const bowmen = 2 + n, warlords = Math.floor(n / 2);
       for (let i = 0; i < bowmen; i++) q.push('bowman');
@@ -430,6 +444,62 @@
     updateHP();
     if (pr.hp <= 0) gameOver();
   }
+  function enterCaravan() {
+    state.level = 8;
+    state.wagon = { speed: 3.2, baseSpeed: 3.2, dist: 0, sway: 0, bump: 0, leg: 0 };
+    state.scenery = [];
+    const R = Math.random;
+    for (let i = 0; i < 70; i++) spawnScenery(R() * 50);
+  }
+  function spawnScenery(z) {
+    const R = Math.random, side = R() < 0.5 ? -1 : 1;
+    const kinds = ['pine', 'pine', 'pine', 'oak', 'dead', 'rock', 'post', 'bush'];
+    const kind = kinds[Math.floor(R() * kinds.length)];
+    if (kind === 'post') state.scenery.push({ kind, x: side * 3.2, z, h: 1.0, w: 0.15 });
+    else if (kind === 'rock') state.scenery.push({ kind, x: side * (4 + R() * 6), z, h: 0.6 + R() * 0.8, w: 0.8 + R() * 1.0, seed: R() * 7 });
+    else if (kind === 'bush') state.scenery.push({ kind, x: side * (3.8 + R() * 3), z, h: 0.7 + R() * 0.5, w: 0.9 + R() * 0.8, seed: R() * 7 });
+    else state.scenery.push({ kind, x: side * (4.5 + R() * 9), z, h: 5 + R() * 5, w: 0.5 + R() * 0.5, seed: R() * 7, cf: 0.35 });
+  }
+  function updateCaravan(dt) {
+    const s = state, wg = s.wagon; if (!wg) return;
+    // speed sags as the wagon takes damage
+    wg.speed += ((wg.baseSpeed * (0.55 + 0.45 * s.hp / MAX_HP)) - wg.speed) * Math.min(1, dt * 2);
+    const v = wg.speed;
+    wg.dist += v * dt; wg.sway += dt * 1.7; wg.bump = Math.max(0, wg.bump - dt * 3);
+    if (Math.random() < dt * 0.6) wg.bump = 0.6 + Math.random() * 0.6;
+    // everything in the world recedes
+    const move = o => { o.z += v * dt; };
+    for (const o of s.scenery) move(o);
+    s.scenery = s.scenery.filter(o => o.z < 60);
+    while (s.scenery.length < 70) spawnScenery(-2 + Math.random() * 2);
+    for (const st of s.stuck) move(st);
+    for (const b of s.barrels) if (!b.away) move(b);
+    for (const bl of s.blasts) move(bl);
+    for (const pt of s.particles) move(pt);
+    for (const c of s.critters) move(c);
+    for (const b of s.balloons) move(b);
+    for (const a of s.arrows) move(a);   // bolts are carried with the air they were loosed into
+    // enemies: pulled back by the wagon's speed, so only the fast ones gain
+    for (const en of s.enemies) { if (!en.dying || en.reached) en.z += v * dt; else en.z += v * dt; }
+    s.enemies = s.enemies.filter(en => en.z < SPAWN_Z + 25 || en.dying);
+    // progress banner / leg changes
+    const leg = Math.min(LEGS, Math.floor(wg.dist / (ROUTE_LEN / LEGS)));
+    if (leg > wg.leg) { wg.leg = leg; if (leg < LEGS) showBanner((Math.round((ROUTE_LEN - wg.dist) / 10) * 10) + ' m to the fort', 1600); }
+    if (wg.dist >= ROUTE_LEN && s.running) { caravanWin(); }
+  }
+  function caravanWin() {
+    const s = state; s.running = false; s.aim = null; endRide();
+    const bonus = 500 + s.hp * 50; s.score += bonus; scoreEl.textContent = s.score;
+    if (s.score > best) { best = s.score; try { localStorage.setItem('rampart-best', String(best)); } catch (e) {} }
+    lastLevel = 8;
+    document.getElementById('overTitle').textContent = 'The caravan made the fort';
+    document.getElementById('overWave').textContent = 'Wagon at ' + s.hp + '/' + MAX_HP + '   bonus +' + bonus;
+    document.getElementById('overScore').textContent = s.score;
+    document.getElementById('overBest').textContent = 'Best: ' + best;
+    document.getElementById('againBtn').textContent = 'Ride again';
+    document.getElementById('switchBtn').textContent = 'Choose a stage';
+    hud.style.display = 'none'; overScr.classList.remove('hidden');
+  }
   function enterRange() {
     state.level = 3;
     state.bolts = RANGE_BOLTS; state.rangeDone = false;
@@ -479,7 +549,7 @@
       return;
     }
     state.spawnQueue = buildWave(state.wave);
-    state.spawnTimer = isEscort() ? 2.5 : 1.2;
+    state.spawnTimer = isEscort() ? 2.5 : (isCaravan() ? 0.8 : 1.2);
     if (isEscort()) princessStartWave();
     waveEl.textContent = 'Wave ' + state.wave;
     state.fireAmmo = fireBoltsForWave(state.wave);
@@ -511,9 +581,13 @@
       for (const o of state.enemies) if (!o.dying) o.rally = 4;
       showBanner('A howl in the dark', 1400); SFX.howl((Math.random() * 2 - 1) * 7, SPAWN_Z);
     }
-    const speedMul = 1 + (state.wave - 1) * 0.07;
-    const ex = isEscort() ? (Math.random() < 0.5 ? -1 : 1) * (5 + Math.random() * 4) : (Math.random() * 2 - 1) * 7;
-    const ez = isEscort() && state.princess ? Math.min(SPAWN_Z, state.princess.z + 4 + Math.random() * 8) : SPAWN_Z + Math.random() * 6;
+    const speedMul = (1 + (state.wave - 1) * 0.07) * (isCaravan() ? 2.1 : 1);
+    let ex = isEscort() ? (Math.random() < 0.5 ? -1 : 1) * (5 + Math.random() * 4) : (Math.random() * 2 - 1) * 7;
+    let ez = isEscort() && state.princess ? Math.min(SPAWN_Z, state.princess.z + 4 + Math.random() * 8) : SPAWN_Z + Math.random() * 6;
+    if (isCaravan()) {
+      if (Math.random() < 0.4) { ex = (Math.random() < 0.5 ? -1 : 1) * (7 + Math.random() * 4); ez = 6 + Math.random() * 10; }   // roadside ambush
+      else { ex = (Math.random() * 2 - 1) * 3; ez = 26 + Math.random() * 10; }                                                     // chasing up the road
+    }
     state.enemies.push({
       type, hp: t.hp, x: ex, z: ez,
       speed: t.speed * speedMul * (0.9 + Math.random() * 0.2), w: t.w, h: t.h,
@@ -1048,8 +1122,9 @@
       }
     } else if (!s.enemies.some(en => !en.dying)) {
       if (isEscort() && s.princess && !s.princess.safe) { /* she still has to reach the gate */ }
-      else { s.waveClearTimer += dt; if (s.waveClearTimer > 2.2) { s.waveClearTimer = 0; startWave(); } }
+      else { s.waveClearTimer += dt; if (s.waveClearTimer > (isCaravan() ? 1.0 : 2.2)) { s.waveClearTimer = 0; startWave(); } }
     }
+    if (isCaravan()) { updateCaravan(dt); if (!s.running) return; }
 
     // Enemies
     for (const en of s.enemies) {
@@ -1111,7 +1186,7 @@
         continue;
       }
       en.z -= en.speed * en.speedMul * dt;
-      en.x += en.veer * en.speedMul * dt + (0 - en.x) * 0.03 * dt;   // veer, plus slight drift toward the gate
+      en.x += en.veer * en.speedMul * dt + (0 - en.x) * (isCaravan() ? 0.5 : 0.03) * dt;   // veer, plus drift toward the gate / the road
       en.x = Math.max(-8, Math.min(8, en.x));
       if (en.z <= WALL_Z) {
         en.dying = 1.2; en.reached = true; SFX.wallHit();
@@ -1297,7 +1372,7 @@
     s.barrelTimer -= dt;
     if (s.barrelTimer <= 0) {
       // only roll one through when at least two enemies are in the 3-14m band, and roll it at their depth
-      const band = s.enemies.filter(e => !e.dying && e.z > 3 && e.z < 14);
+      const band = isCaravan() ? [] : s.enemies.filter(e => !e.dying && e.z > 3 && e.z < 14);
       if (band.length >= 2) { spawnBarrel(band.reduce((a, e) => a + e.z, 0) / band.length); s.barrelTimer = 18 + Math.random() * 14; }
       else s.barrelTimer = 3;
     }
@@ -1420,7 +1495,7 @@
     if (!state.running || paused || state.barrelAmmo <= 0) return;
     if (state.barrels.some(b => b.away && b.z < 2.5)) return;   // one at a time at the gate
     state.barrelAmmo--; updateFireBtn();
-    state.barrels.push({ x: 0, z: 0.9, r: BARREL_R, vx: 0, vz: 7.5 + Math.random() * 1.5, rot: 0, dead: false, away: true });
+    state.barrels.push({ x: 0, z: 0.9, r: BARREL_R, vx: 0, vz: isCaravan() ? 1.5 : 7.5 + Math.random() * 1.5, rot: 0, dead: false, away: true });
     buzz([15, 30, 15]);
   }
   // ---- Balloon bolts: a hit hoists the enemy; shoot the balloon to drop them ----
@@ -1727,7 +1802,7 @@
     for (const en of s.enemies) if (en.wolf && !en.dying && en.z < 18) { const k = Math.max(0, 1 - en.z / 18); wl += k * k; wx += en.x * k; wn += k; }
     SFX.setWolves(Math.min(1, wl), wn ? wx / wn : 0);
     // ambience by stage
-    const kind = !s.running ? null : ((s.level === 1 || s.level === 7) ? 'field' : s.level === 2 ? 'forest' : s.level === 3 ? 'range' : s.level === 4 ? 'camp' : s.level === 5 ? 'raid' : 'citadel');
+    const kind = !s.running ? null : ((s.level === 1 || s.level === 7) ? 'field' : s.level === 8 ? 'citadel' : s.level === 2 ? 'forest' : s.level === 3 ? 'range' : s.level === 4 ? 'camp' : s.level === 5 ? 'raid' : 'citadel');
     SFX.ambience(kind);
   }
   function render() {
@@ -1737,15 +1812,17 @@
     camX = bowYawN * 1.1; camY = bowPitchN * 0.12;
     ctx.save();
     if (s.shake > 0) ctx.translate((Math.random() - 0.5) * 10 * s.shake, (Math.random() - 0.5) * 10 * s.shake);
+    if (s.level === 8 && s.wagon) { const wg = s.wagon; ctx.translate(Math.sin(wg.sway) * 4, Math.sin(wg.sway * 1.9) * 3 + wg.bump * 4); ctx.rotate(Math.sin(wg.sway * 0.9) * 0.01); }
 
     collectLights();
     if (s.running && s.level !== 3) remainEl.textContent = s.spawnQueue.length + s.enemies.filter(e => !e.dying).length;
+    if (s.level === 8 && s.wagon) waveEl.textContent = Math.max(0, Math.round((ROUTE_LEN - s.wagon.dist) / 10) * 10) + ' m';
     const vyaw = viewYaw(), shifted = Math.abs(vyaw) > 1e-4;
     if (shifted) { ctx.fillStyle = s.level === 3 ? '#8fb0c4' : (s.level === 6 ? '#161d2e' : (s.level === 2 ? '#0a1a24' : (s.level === 5 ? '#02040a' : (s.level === 4 ? '#070b14' : '#0d1030')))); ctx.fillRect(-20, -20, W + 40, H + 40); ctx.save(); ctx.translate(-Math.tan(vyaw) * focal() * 0.3, 0); }
     if (s.level === 3) {
       drawRangeBackdrop(hy);
-    } else if (s.level === 7) {
-      drawEscortBackdrop(hy);
+    } else if (s.level === 8) {
+      drawCaravanBackdrop(hy);
     } else if (s.level === 6) {
       drawCitadelBackdrop(hy);
     } else if (isCamp()) {
@@ -1806,6 +1883,7 @@
     for (const c of s.critters) items.push({ z: c.z, kind: 'critter', o: c });
     for (const b of s.balloons) items.push({ z: b.z, kind: 'balloon', o: b });
     if (s.level === 7 && s.princess) items.push({ z: s.princess.z, kind: 'princess', o: s.princess });
+    if (s.level === 8) for (const o of s.scenery) items.push({ z: o.z, kind: 'scenery', o });
     for (const b of s.barrels) items.push({ z: b.z, kind: 'barrel', o: b });
     for (const bl of s.blasts) items.push({ z: bl.z - 0.01, kind: 'blast', o: bl });
     for (const st of s.stuck) items.push({ z: st.z, kind: 'stuck', o: st });
@@ -1828,6 +1906,7 @@
       else if (it.kind === 'critter') drawCritter(it.o);
       else if (it.kind === 'balloon') drawBalloon(it.o);
       else if (it.kind === 'princess') drawPrincess(it.o);
+      else if (it.kind === 'scenery') drawScenery(it.o);
       else if (it.kind === 'barrel') drawBarrel(it.o);
       else if (it.kind === 'blast') drawBlast(it.o);
       else if (it.kind === 'arrow') drawArrow(it.o);
@@ -1865,6 +1944,7 @@
 
   // Stone wall across the bottom with crenellations, a lantern and a quiver. Drawn behind the crossbow.
   function drawParapet() {
+    if (state.level === 8) { drawTailgate(); return; }
     const top = H * 0.80, g = bowG;
     const stone = ctx.createLinearGradient(0, top, 0, H);
     stone.addColorStop(0, '#2a2422'); stone.addColorStop(1, '#120f0e');
@@ -1900,6 +1980,33 @@
       ctx.strokeStyle = '#c9a76a'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(bx, qy - qh * 0.3); ctx.lineTo(bx, by); ctx.stroke();
       ctx.fillStyle = i % 2 ? '#b0291f' : '#e8dcc2'; ctx.beginPath(); ctx.moveTo(bx - 4, by + 8); ctx.lineTo(bx, by - 2); ctx.lineTo(bx + 4, by + 8); ctx.closePath(); ctx.fill();
     }
+  }
+
+  // The wagon's tailgate and side rails, seen from inside the bed
+  function drawTailgate() {
+    const top = H * 0.80;
+    const wood = ctx.createLinearGradient(0, top, 0, H);
+    wood.addColorStop(0, '#5a3e28'); wood.addColorStop(1, '#2a1c12');
+    ctx.fillStyle = wood; ctx.fillRect(-20, top, W + 40, H - top + 20);
+    ctx.strokeStyle = 'rgba(0,0,0,.45)'; ctx.lineWidth = 2;
+    for (let i = 1; i < 5; i++) { const y = top + (H - top) * i / 5; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+    ctx.fillStyle = '#3a3a42';
+    for (const x of [W * 0.12, W * 0.5, W * 0.88]) for (let i = 0; i < 5; i++) { ctx.beginPath(); ctx.arc(x, top + (H - top) * (i + 0.5) / 5, 3, 0, 6.28); ctx.fill(); }
+    // iron strap along the top edge
+    ctx.fillStyle = '#4a4a52'; ctx.fillRect(-20, top - 6, W + 40, 8);
+    // side rails converging toward the horizon
+    ctx.strokeStyle = '#4a3220'; ctx.lineWidth = Math.max(6, W * 0.025); ctx.lineCap = 'round';
+    for (const d of [-1, 1]) { ctx.beginPath(); ctx.moveTo(W / 2 + d * W * 0.62, top - 10); ctx.lineTo(W / 2 + d * W * 0.34, H * 0.56); ctx.stroke(); }
+    // lantern swinging from the left rail
+    const lx = W * 0.14 + Math.sin(state.wagon ? state.wagon.sway * 1.3 : 0) * 6, ly = H * 0.6, lw = W * 0.05, lh = H * 0.06;
+    ctx.strokeStyle = '#2a2018'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(W * 0.17, H * 0.52); ctx.lineTo(lx, ly - lh); ctx.stroke();
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    const fl = 0.85 + Math.sin(performance.now() / 90) * 0.1;
+    const lg = ctx.createRadialGradient(lx, ly - lh * 0.5, 2, lx, ly - lh * 0.5, lw * 3 * fl);
+    lg.addColorStop(0, 'rgba(255,170,60,.5)'); lg.addColorStop(1, 'rgba(255,110,30,0)');
+    ctx.fillStyle = lg; ctx.beginPath(); ctx.arc(lx, ly - lh * 0.5, lw * 3 * fl, 0, 6.28); ctx.fill(); ctx.restore();
+    ctx.fillStyle = '#1a1512'; ctx.fillRect(lx - lw / 2, ly - lh, lw, lh);
+    ctx.fillStyle = '#ffb347'; ctx.fillRect(lx - lw * 0.3, ly - lh * 0.85, lw * 0.6, lh * 0.65);
   }
 
   // Compass radar in the top-right corner: enemies as red dots by bearing and distance.
@@ -2378,6 +2485,62 @@
     ctx.restore();
     // shadow on the ledge
     ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(p.sx, p.sy, w * 0.5, w * 0.14, 0, 0, 6.28); ctx.fill();
+  }
+
+  // ---- Caravan: looking back down the road from the wagon's tailgate ----
+  function drawCaravanBackdrop(hy) {
+    const wg = state.wagon;
+    const sky = ctx.createLinearGradient(0, 0, 0, hy);
+    sky.addColorStop(0, '#1a1430'); sky.addColorStop(0.55, '#5a3050'); sky.addColorStop(1, '#d8784a');
+    ctx.fillStyle = sky; ctx.fillRect(-20, -20, W + 40, hy + 20);
+    const sx = W * 0.5, sy = hy * 0.92, sr = W * 0.14;
+    const sg = ctx.createRadialGradient(sx, sy, sr * 0.5, sx, sy, sr * 2.4);
+    sg.addColorStop(0, 'rgba(255,170,90,.45)'); sg.addColorStop(1, 'rgba(255,170,90,0)');
+    ctx.fillStyle = sg; ctx.fillRect(-20, -20, W + 40, hy + 20);
+    ctx.fillStyle = '#ffb060'; ctx.beginPath(); ctx.arc(sx, sy, sr, 0, 6.28); ctx.fill();
+    // valley ridges slide very slowly with distance
+    const off = wg ? (wg.dist * 0.4) % (W * 2) : 0;
+    const rows = [['#3a2a48', 0.62, 0.22, 0.25], ['#2a1f3a', 0.74, 0.18, 0.5], ['#1c162a', 0.86, 0.14, 1.0]];
+    for (const [col, baseF, hF, par] of rows) {
+      ctx.fillStyle = col; const rr = srand(baseF * 10); const base = hy * baseF + hy * 0.14, step = W * 0.06;
+      ctx.beginPath(); ctx.moveTo(-20, hy + 2);
+      const shift = (off * par) % step;
+      for (let x = -step * 2; x <= W + step * 2; x += step) { const h = hy * hF * (0.5 + rr() * 0.8); ctx.lineTo(x - shift, base - h * 0.3); ctx.lineTo(x - shift + step * 0.5, base - h); }
+      ctx.lineTo(W + 20, hy + 2); ctx.closePath(); ctx.fill();
+    }
+    // ground
+    const gnd = ctx.createLinearGradient(0, hy, 0, H);
+    gnd.addColorStop(0, '#3a3040'); gnd.addColorStop(0.3, '#2a2432'); gnd.addColorStop(1, '#17141c');
+    ctx.fillStyle = gnd; ctx.fillRect(-20, hy, W + 40, H - hy + 20);
+    // the road, with ruts and sleepers scrolling toward the horizon
+    const a = project(0, 0, 0.5), b = project(0, 0, 55);
+    ctx.fillStyle = '#4a3c34';
+    ctx.beginPath(); ctx.moveTo(b.sx - 2.6 * b.s, b.sy); ctx.lineTo(b.sx + 2.6 * b.s, b.sy); ctx.lineTo(a.sx + 2.8 * a.s, a.sy); ctx.lineTo(a.sx - 2.8 * a.s, a.sy); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 2;
+    for (const rx of [-1.1, 1.1]) { const q0 = project(rx, 0, 0.5), q1 = project(rx, 0, 55); ctx.beginPath(); ctx.moveTo(q0.sx, q0.sy); ctx.lineTo(q1.sx, q1.sy); ctx.stroke(); }
+    const phase = wg ? wg.dist % 3 : 0;
+    ctx.strokeStyle = 'rgba(0,0,0,.22)';
+    for (let z = 1 - phase; z < 50; z += 3) { if (z < 0.6) continue; const q = project(0, 0, z); ctx.lineWidth = Math.max(1, q.s * 0.05); ctx.beginPath(); ctx.moveTo(q.sx - 2.4 * q.s, q.sy); ctx.lineTo(q.sx + 2.4 * q.s, q.sy); ctx.stroke(); }
+    // dust kicked up behind the wheels
+    if (wg && Math.random() < 0.5) state.particles.push({ x: (Math.random() < 0.5 ? -1 : 1) * 1.1, y: 0.1, z: 0.8, vx: (Math.random() - 0.5) * 0.4, vy: 0.3 + Math.random() * 0.5, t: 0, life: 0.8 + Math.random() * 0.6, color: '#6a5a4a', r: 0.12 + Math.random() * 0.1 });
+  }
+  function drawScenery(o) {
+    if (o.kind === 'post') {
+      const p = project(o.x, 0, o.z), q = project(o.x, o.h, o.z);
+      ctx.strokeStyle = '#2a2018'; ctx.lineWidth = Math.max(1.5, p.s * 0.12); ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(p.sx, p.sy); ctx.lineTo(q.sx, q.sy); ctx.stroke(); return;
+    }
+    if (o.kind === 'rock') {
+      const p = project(o.x, 0, o.z), w = o.w * p.s, hh = o.h * p.s, r = srand(o.seed);
+      ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.beginPath(); ctx.ellipse(p.sx, p.sy, w * 0.7, w * 0.2, 0, 0, 6.28); ctx.fill();
+      ctx.fillStyle = '#2e2838';
+      ctx.beginPath(); ctx.moveTo(p.sx - w * 0.6, p.sy); ctx.quadraticCurveTo(p.sx - w * 0.7, p.sy - hh * 0.6, p.sx - w * 0.25, p.sy - hh);
+      ctx.quadraticCurveTo(p.sx + w * 0.2, p.sy - hh * 1.1, p.sx + w * 0.55, p.sy - hh * 0.5); ctx.quadraticCurveTo(p.sx + w * 0.7, p.sy - hh * 0.2, p.sx + w * 0.6, p.sy); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#5a4a58'; ctx.beginPath(); ctx.ellipse(p.sx - w * 0.15, p.sy - hh * 0.65, w * 0.28, hh * 0.22, -0.3, 0, 6.28); ctx.fill();
+      return;
+    }
+    // trees and bushes reuse the forest renderer with a flat daylight look
+    drawTree(Object.assign({ type: o.kind, burning: 0, charred: false }, o));
   }
 
   // ---- Escort: a moonlit meadow between the treeline and the gate ----
@@ -3348,6 +3511,7 @@
     if (level === 2) enterForest();
     if (level === 4 || level === 5) enterCamp(level);
     if (level === 7) enterEscort();
+    if (level === 8) enterCaravan();
     if (level === 6) state.level = 6;
     scoreEl.textContent = '0'; updateHP(); updateBuffs();
     startScr.classList.add('hidden'); overScr.classList.add('hidden'); hud.style.display = 'block';
@@ -3360,10 +3524,10 @@
     if (state.score > best) { best = state.score; try { localStorage.setItem('rampart-best', String(best)); } catch (e) {} }
     document.getElementById('overScore').textContent = state.score;
     lastLevel = state.level;
-    const names = { 1: 'the field', 2: 'the forest', 4: 'the camp', 5: 'the raid', 6: 'the citadel', 7: 'the escort' };
+    const names = { 1: 'the field', 2: 'the forest', 4: 'the camp', 5: 'the raid', 6: 'the citadel', 7: 'the escort', 8: 'the caravan' };
     document.getElementById('againBtn').textContent = state.level === 1 ? 'Hold the wall again' : 'Replay ' + names[state.level];
     document.getElementById('switchBtn').textContent = 'Choose a stage';
-    document.getElementById('overTitle').textContent = state.level === 7 ? (state.princess && state.princess.hp <= 0 ? 'The princess fell' : 'The princess was taken') : state.level === 6 ? 'The wall is burning' : (state.level === 1 ? 'The dead are over the wall' : 'The pack is over the wall');
+    document.getElementById('overTitle').textContent = state.level === 8 ? 'The wagon went down' : state.level === 7 ? (state.princess && state.princess.hp <= 0 ? 'The princess fell' : 'The princess was taken') : state.level === 6 ? 'The wall is burning' : (state.level === 1 ? 'The dead are over the wall' : 'The pack is over the wall');
     document.getElementById('overWave').textContent = 'Survived through wave ' + state.wave + ' in ' + names[state.level];
     document.getElementById('overBest').textContent = 'Best: ' + best;
     hud.style.display = 'none'; overScr.classList.remove('hidden');
@@ -3376,6 +3540,7 @@
   document.getElementById('raidBtn').addEventListener('click', () => startGame(5));
   document.getElementById('citadelBtn').addEventListener('click', () => startGame(6));
   document.getElementById('escortBtn').addEventListener('click', () => startGame(7));
+  document.getElementById('caravanBtn').addEventListener('click', () => startGame(8));
   // Stage menu: opened by the pause button during play
   const menuScr = document.getElementById('menu');
   function openMenu() {
