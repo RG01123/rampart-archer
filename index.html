@@ -136,7 +136,7 @@
     <button id="citadelBtn" class="secondary">The citadel</button>
     <button id="escortBtn" class="secondary">The escort</button>
     <button id="caravanBtn" class="secondary">The caravan</button>
-    <button id="bridgeBtn" class="secondary">The bridge</button>
+    <button id="bridgeBtn" class="secondary">The crossing</button>
     <button id="startBtn" class="secondary">Hold the wall</button>
     <button id="rangeBtn" class="secondary">Target range</button>
     <button id="howBtn" class="link" type="button" aria-expanded="false">How to play</button>
@@ -151,7 +151,7 @@
       <p>The siege camp is a night raid lit by torches: the pack comes as black shapes with burning eyes. The pause button opens the stage menu at any time.</p>
       <p>The escort: a princess crosses the meadow toward your gate. The dead go for her, not the wall. Kill whoever grabs her and she walks on; keep your own bolts and bombs clear of her. Lose her to the treeline and it's over.</p>
       <p>The caravan: you ride the tailgate of a wagon down a valley road. The pack chases from behind and springs from the roadside; only the fast ones can catch you. Barrels drop off the back into their path. Reach the fort.</p>
-      <p>The bridge: the dead cross a five-span bridge single file. A bomb on a span drops it and everyone on it into the river; a fire bolt burns one through slowly. Some swim to the bank and climb out beside the gate. Builders come to rebuild gaps; shoot them to keep the gap open.</p>
+      <p>The crossing: the pack runs along the far bank looking for a ford, then wades across toward you. Lead your shots. Wading is slow, so a fire bolt into a ford pays off; a bomb churns the water and slows them more.</p>
       <p>The citadel: archers hold the ledges at different ranges and loose flaming arrows at you. Shoot the arrows out of the air, or the archers themselves. Ledges block your bolts, so find the angle.</p>
       <p>Look around: hold the edge arrows, or drag with two fingers. Tap the compass to face forward again. Aiming follows where you look.</p>
       <p>Sound can be switched off from the pause menu. On iPhone, the ringer switch must be on to hear it.</p>
@@ -174,7 +174,7 @@
       <button class="secondary" data-level="6">The citadel</button>
       <button class="secondary" data-level="7">The escort</button>
       <button class="secondary" data-level="8">The caravan</button>
-      <button class="secondary" data-level="9">The bridge</button>
+      <button class="secondary" data-level="9">The crossing</button>
       <button class="secondary" data-level="1">The field</button>
       <button class="secondary" data-level="3">Target range</button>
     </div>
@@ -240,9 +240,11 @@
   const isCitadel = () => state && state.level === 6;
   const isEscort = () => state && state.level === 7;
   const isCaravan = () => state && state.level === 8;
-  const isBridge = () => state && state.level === 9;
-  const SPAN_LEN = 7, SPAN_COUNT = 5, BRIDGE_Z0 = 3, BRIDGE_W = 2.2, DECK_Y = 0.6, SPAN_BURN = 15, REPAIR_TIME = 12;
-  const SWIM_CHANCE = 0.45;
+  const isCrossing = () => state && state.level === 9;
+  // river bands: the far bank runs along z = RIVER_FAR, fords let them wade to the near bank at RIVER_NEAR
+  const RIVER_NEAR = 6, RIVER_FAR = 16, BANK_X = 14;
+  const FORDS = [-9, -2, 5, 11];
+  const BANK_LANES = [RIVER_FAR + 0.8, RIVER_FAR + 5, RIVER_FAR + 11];
   const ROUTE_LEN = 1200, LEGS = 5;   // meters to the fort, in waves
   const PRINCESS_HP = 3, PRINCESS_SPEED = 1.2, DRAG_SPEED = 1.6, LOST_Z = 42;
   // Ledges the archers stand on: x range, height, depth from the wall, thickness
@@ -322,18 +324,18 @@
       aim: null,  // { ax, ay, cx, cy }
       shake: 0,
       level: 1, trees: [], targets: [], bolts: 0, rangeDone: false, incoming: [], wallFlash: 0, princess: null,
-      wagon: null, scenery: [], spans: [], builders: [], swimmers: [],
+      wagon: null, scenery: [], churn: [],
     };
   }
 
   // ---------- Waves ----------
   function buildWave(n) {
     const q = [];
-    if (isBridge()) {
-      const shamblers = 5 + n * 2, sprinters = n, hulks = Math.floor(n / 2);
-      for (let i = 0; i < shamblers; i++) q.push('shambler');
-      for (let i = 0; i < sprinters; i++) q.push('sprinter');
-      for (let i = 0; i < hulks; i++) q.push('hulk');
+    if (isCrossing()) {
+      const scouts = 2 + n * 2, stalkers = 2 + n, alphas = Math.floor(n / 2);
+      for (let i = 0; i < scouts; i++) q.push('scout');
+      for (let i = 0; i < stalkers; i++) q.push('stalker');
+      for (let i = 0; i < alphas; i++) q.push('alpha');
       for (let i = q.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [q[i], q[j]] = [q[j], q[i]]; }
       return q;
     }
@@ -457,82 +459,6 @@
     burst(pr.x, 1.2, pr.z, 10, '#ffd1dc'); floatText(pr.x, 2.4, pr.z, why || 'Hurt');
     updateHP();
     if (pr.hp <= 0) gameOver();
-  }
-  function enterBridge() {
-    state.level = 9;
-    state.spans = [];
-    for (let i = 0; i < SPAN_COUNT; i++) state.spans.push({ i, z0: BRIDGE_Z0 + i * SPAN_LEN, z1: BRIDGE_Z0 + (i + 1) * SPAN_LEN, hp: 1, burning: 0, down: false, fallT: 0, repair: 0, builder: null });
-    state.builders = []; state.swimmers = [];
-  }
-  function spanAt(z) { for (const sp of state.spans) if (z >= sp.z0 && z < sp.z1) return sp; return null; }
-  function collapseSpan(sp, why) {
-    if (sp.down) return; sp.down = true; sp.fallT = 0.01; sp.burning = 0; sp.repair = 0;
-    const s = state; s.shake = Math.max(s.shake, 1.4); buzz([40, 30, 80]); SFX.explosion(0, (sp.z0 + sp.z1) / 2);
-    for (let i = 0; i < 30; i++) burst((Math.random() - 0.5) * BRIDGE_W * 2, DECK_Y, sp.z0 + Math.random() * SPAN_LEN, 1, '#6a6e80');
-    // everything standing on it goes into the river
-    let dropped = 0;
-    for (const en of s.enemies) {
-      if (en.dying || en.lifted || en.falling) continue;
-      if (en.z >= sp.z0 - 0.3 && en.z < sp.z1 + 0.3) { dropEnemy(en); dropped++; }
-    }
-    for (const b of s.builders) if (!b.dead && b.z >= sp.z0 - 0.5 && b.z < sp.z1 + 0.5) { b.dead = true; burst(b.x, DECK_Y, b.z, 6, '#c9a76a'); }
-    if (dropped >= 3) { const bonus = dropped * 25; s.score += bonus; scoreEl.textContent = s.score; floatText(0, 2.5, (sp.z0 + sp.z1) / 2, dropped + ' down  +' + bonus); }
-    showBanner(why || 'Span down', 1200);
-  }
-  function dropEnemy(en) {
-    // off the bridge and into the water: most drown, some surface and swim for the bank
-    en.dying = 0.01; en.plunge = true;
-    burst(en.x, 0, en.z, 14, '#8fb8d8');
-    if (Math.random() < SWIM_CHANCE) state.swimmers.push({ x: en.x + (Math.random() - 0.5), z: en.z, side: en.x < 0 ? -1 : 1, t: 0, phase: 'swim', hp: 1, type: en.type, score: en.score, dmg: en.dmg, bob: Math.random() * 6.28 });
-    else { const pts = Math.round(en.score * 0.5); state.score += pts; scoreEl.textContent = state.score; }
-  }
-  function updateBridge(dt) {
-    const s = state;
-    for (const sp of s.spans) {
-      if (sp.down) {
-        sp.fallT += dt;
-        // a repair crew comes out after a while
-        if (!sp.builder && sp.fallT > 4 && !s.builders.some(b => !b.dead && b.target === sp)) {
-          s.builders.push({ x: (Math.random() - 0.5) * 1.2, z: SPAN_COUNT * SPAN_LEN + BRIDGE_Z0 + 2, target: sp, dead: false, work: 0, bob: Math.random() * 6.28 });
-        }
-        continue;
-      }
-      if (sp.burning > 0) {
-        sp.burning -= dt;
-        for (let i = 0; i < 2; i++) if (Math.random() < 0.7) flame((Math.random() - 0.5) * BRIDGE_W * 2, DECK_Y + Math.random() * 0.6, sp.z0 + Math.random() * SPAN_LEN);
-        for (const en of s.enemies) if (!en.dying && !en.burning && en.z >= sp.z0 && en.z < sp.z1 && Math.random() < dt * 1.5) ignite(en);
-        if (sp.burning <= 0) collapseSpan(sp, 'Burned through');
-      }
-    }
-    // builders: walk to their span, stand at its far edge and rebuild
-    for (const b of s.builders) {
-      if (b.dead) continue;
-      b.bob += dt * 5;
-      const goal = b.target.z1 + 0.6;
-      if (b.z > goal) { b.z -= 1.4 * dt; continue; }
-      // can't cross a gap to reach a span further in: only the outermost downed span gets rebuilt
-      if (!b.target.down) { b.dead = true; continue; }
-      b.work += dt; b.target.repair = Math.min(1, b.work / REPAIR_TIME);
-      if (b.work >= REPAIR_TIME) { b.target.down = false; b.target.repair = 0; b.target.fallT = 0; b.target.builder = null; b.dead = true; showBanner('Span rebuilt', 1200); }
-    }
-    s.builders = s.builders.filter(b => !b.dead);
-    // swimmers: drift to the near bank, then climb and come at the gate from the side
-    for (const sw of s.swimmers) {
-      sw.t += dt; sw.bob += dt * 4;
-      if (sw.phase === 'swim') {
-        sw.z -= 1.1 * dt; sw.x += sw.side * 0.9 * dt;
-        if (sw.z <= 2.2) { sw.phase = 'climb'; sw.x = sw.side * 3.4; sw.climb = 0; }
-      } else if (sw.phase === 'climb') {
-        sw.climb += dt * 0.6;
-        if (sw.climb >= 1) {
-          // back onto the bank as a real enemy at the gate's flank
-          const t = ENEMY_TYPES[sw.type];
-          s.enemies.push(Object.assign({}, makeEnemy(sw.type, sw.x, 2.4), { hp: 1, maxHp: 1, wet: true }));
-          sw.dead = true; floatText(sw.x, 1.8, 2.4, 'Climbed out');
-        }
-      }
-    }
-    s.swimmers = s.swimmers.filter(sw => !sw.dead);
   }
   function enterCaravan() {
     state.level = 8;
@@ -665,7 +591,15 @@
   }
   function spawnEnemy(type) {
     if (isCitadel()) return spawnArcher(type);
-    if (isBridge()) { state.enemies.push(makeEnemy(type, (Math.random() - 0.5) * 1.0, BRIDGE_Z0 + SPAN_COUNT * SPAN_LEN + 3 + Math.random() * 3)); return; }
+    if (isCrossing()) {
+      // enter from one bank edge on a random lane, running along the far bank
+      const dir = Math.random() < 0.5 ? 1 : -1, lane = BANK_LANES[Math.floor(Math.random() * BANK_LANES.length)];
+      const en = makeEnemy(type, -dir * (BANK_X + 2 + Math.random() * 3), lane + (Math.random() - 0.5));
+      en.runDir = dir; en.lane = lane; en.phase = 'bank';
+      // pick a ford ahead of it, favouring one near the middle
+      const ahead = FORDS.filter(f => (f - en.x) * dir > 2); en.ford = ahead.length ? ahead[Math.floor(Math.random() * ahead.length)] : FORDS[dir > 0 ? FORDS.length - 1 : 0];
+      state.enemies.push(en); return;
+    }
     const t = ENEMY_TYPES[type];
     if (t.howl) {
       // the alpha howls: everything alive on the field rallies for a few seconds
@@ -682,7 +616,7 @@
   }
   function makeEnemy(type, ex, ez) {
     const t = ENEMY_TYPES[type];
-    const baseY = isBridge() && ez > BRIDGE_Z0 ? DECK_Y : 0;
+    const baseY = 0;
     const speedMul = (1 + (state.wave - 1) * 0.07) * (isCaravan() ? 2.1 : 1);
     return ({
       type, hp: t.hp, x: ex, z: ez, baseY,
@@ -1221,7 +1155,7 @@
       else { s.waveClearTimer += dt; if (s.waveClearTimer > (isCaravan() ? 1.0 : 2.2)) { s.waveClearTimer = 0; startWave(); } }
     }
     if (isCaravan()) { updateCaravan(dt); if (!s.running) return; }
-    if (isBridge()) { updateBridge(dt); if (!s.running) return; }
+    if (isCrossing()) { for (const c of s.churn) c.t -= dt; s.churn = s.churn.filter(c => c.t > 0); }
 
     // Enemies
     for (const en of s.enemies) {
@@ -1282,18 +1216,28 @@
         en.x = Math.max(-9, Math.min(9, en.x));
         continue;
       }
-      if (isBridge() && !en.wet) {
-        // on the bridge: keep to the deck, and stop short of a missing span
-        const nz = en.z - en.speed * en.speedMul * dt;
-        const ahead = spanAt(nz - 0.3);
-        if (ahead && ahead.down) { en.z = Math.max(nz, ahead.z1 + 0.35); }
-        else en.z = nz;
-        en.x += (0 - en.x) * 0.6 * dt + en.veer * 0.15 * en.speedMul * dt;
-        en.x = Math.max(-BRIDGE_W * 0.8, Math.min(BRIDGE_W * 0.8, en.x));
-        en.baseY = en.z > BRIDGE_Z0 ? DECK_Y : 0;
+      if (isCrossing() && en.phase) {
+        const v = en.speed * en.speedMul;
+        if (en.phase === 'bank') {
+          // run along the far bank toward the chosen ford
+          en.x += en.runDir * v * dt; en.z += (en.lane - en.z) * 1.5 * dt + en.veer * 0.2 * dt;
+          if ((en.x - en.ford) * en.runDir >= 0) { en.phase = 'ford'; en.x = en.ford; }
+          if (Math.abs(en.x) > BANK_X + 6) { en.runDir *= -1; const ahead = FORDS.filter(f => (f - en.x) * en.runDir > 2); en.ford = ahead.length ? ahead[Math.floor(Math.random() * ahead.length)] : FORDS[0]; }
+        } else if (en.phase === 'ford') {
+          // wade: slow, straight across, slower still in churned water
+          const churned = s.churn.some(c => Math.abs(c.x - en.x) < 2.2 && c.t > 0);
+          const wade = v * (churned ? 0.22 : 0.42);
+          en.z -= wade * dt; en.x += (en.ford - en.x) * 2 * dt + Math.sin(en.bob * 0.5) * 0.15 * dt;
+          if (en.z <= RIVER_NEAR) { en.phase = 'charge'; }
+        } else {
+          // out of the water and straight at the wall
+          en.z -= v * dt; en.x += (0 - en.x) * 0.5 * dt + en.veer * 0.3 * en.speedMul * dt;
+        }
+        en.x = Math.max(-BANK_X - 8, Math.min(BANK_X + 8, en.x));
+        en.wading = en.phase === 'ford';
       } else {
       en.z -= en.speed * en.speedMul * dt;
-      en.x += en.veer * en.speedMul * dt + (0 - en.x) * (isCaravan() ? 0.5 : (isBridge() ? 0.8 : 0.03)) * dt;   // veer, plus drift toward the gate / the road
+      en.x += en.veer * en.speedMul * dt + (0 - en.x) * (isCaravan() ? 0.5 : 0.03) * dt;   // veer, plus drift toward the gate / the road
       en.x = Math.max(-8, Math.min(8, en.x));
       }
       if (en.z <= WALL_Z) {
@@ -1376,35 +1320,10 @@
         }
         if (blocked) continue;
       }
-      // Bridge: bolts can hit the deck, builders, or swimmers
-      if (isBridge() && a.life >= LAUNCH_BLEND) {
-        let used = false;
-        for (const b of s.builders) {
-          if (b.dead) continue;
-          if (Math.abs(a.x - b.x) < 0.5 && Math.abs(a.z - b.z) < 0.6 && a.y > DECK_Y && a.y < DECK_Y + 1.8) {
-            if (a.bomb) { bombDetonate(a); const sp = spanAt(a.z); if (sp) collapseSpan(sp, 'Blown apart'); used = true; break; }
-            b.dead = true; a.dead = true; used = true; burst(b.x, DECK_Y + 1, b.z, 8, '#c9a76a'); s.score += 15; scoreEl.textContent = s.score; floatText(b.x, DECK_Y + 2, b.z, 'Builder down'); SFX.hit('archer', b.x, b.z); break;
-          }
-        }
-        if (used) continue;
-        for (const sw of s.swimmers) {
-          if (sw.dead) continue;
-          const sy = sw.phase === 'climb' ? sw.climb * 0.8 : 0.1;
-          if (Math.abs(a.x - sw.x) < 0.5 && Math.abs(a.z - sw.z) < 0.7 && Math.abs(a.y - sy) < 0.7) {
-            if (a.bomb) { bombDetonate(a); }
-            sw.dead = true; a.dead = true; used = true; burst(sw.x, sy + 0.3, sw.z, 10, '#8fb8d8'); s.score += sw.score; scoreEl.textContent = s.score; SFX.hit('zombie', sw.x, sw.z); break;
-          }
-        }
-        if (used) continue;
-        // the deck itself
-        const sp = spanAt(a.z);
-        if (sp && !sp.down && Math.abs(a.x) < BRIDGE_W && a.y <= DECK_Y + 0.05) {
-          if (a.bomb) { bombDetonate(a); collapseSpan(sp, 'Blown apart'); continue; }
-          a.dead = true; s.stuck.push({ x: a.x, y: DECK_Y, z: a.z, t: 0, yaw: Math.atan2(a.vx, a.vz), fire: a.fire });
-          if (a.fire && !sp.burning) { sp.burning = SPAN_BURN; showBanner('The span is burning', 1000); }
-          SFX.hit('wood', a.x, a.z); continue;
-        }
-        if (a.y <= 0 && Math.abs(a.x) < BRIDGE_W && a.z > BRIDGE_Z0) { a.dead = true; burst(a.x, 0, a.z, 8, '#8fb8d8'); SFX.hit('ground', a.x, a.z); continue; }   // splash
+      // The crossing: a bolt into the river splashes; a bomb churns the ford
+      if (isCrossing() && a.life >= LAUNCH_BLEND && a.y <= 0 && a.z > RIVER_NEAR && a.z < RIVER_FAR) {
+        if (a.bomb) { bombDetonate(a); s.churn.push({ x: a.x, t: 9 }); showBanner('Ford churned', 900); continue; }
+        a.dead = true; burst(a.x, 0.1, a.z, 8, '#8fb8d8'); SFX.hit('ground', a.x, a.z); continue;
       }
       // The princess: your own bolt hurts her
       if (isEscort() && s.princess && !s.princess.safe && a.life >= LAUNCH_BLEND) {
@@ -1510,13 +1429,16 @@
     s.barrelTimer -= dt;
     if (s.barrelTimer <= 0) {
       // only roll one through when at least two enemies are in the 3-14m band, and roll it at their depth
-      const band = (isCaravan() || isBridge()) ? [] : s.enemies.filter(e => !e.dying && e.z > 3 && e.z < 14);
+      const band = isCaravan() ? [] : s.enemies.filter(e => !e.dying && e.z > 3 && e.z < 14);
       if (band.length >= 2) { spawnBarrel(band.reduce((a, e) => a + e.z, 0) / band.length); s.barrelTimer = 18 + Math.random() * 14; }
       else s.barrelTimer = 3;
     }
     for (const b of s.barrels) {
-      if (isBridge() && b.away && !b.dead) { const sp = spanAt(b.z); if (sp && sp.down) { explodeBarrel(b); continue; } }
-      if (b.away) {
+      if (b.away && isCrossing() && b.z > RIVER_NEAR) {
+        // afloat: drifts downstream across the fords
+        b.vx = 1.2; b.x += b.vx * dt; b.rot += b.vx / b.r * dt; b.vz = 0;
+        if (b.x > BANK_X + 4) b.dead = true;
+      } else if (b.away) {
         // rolled from the wall: slows on the rough ground and stops
         b.z += b.vz * dt; b.vz = Math.max(0, b.vz - 0.9 * dt); b.rot += (b.vz + (isCaravan() && s.wagon ? s.wagon.speed : 0)) / b.r * dt;
       } else { b.x += b.vx * dt; b.rot += b.vx / b.r * dt; }
@@ -1720,8 +1642,7 @@
     for (const inc of s.incoming) if (!inc.dead && Math.hypot(inc.x - x, inc.y - y, inc.z - z) < radius) { inc.dead = true; burst(inc.x, inc.y, inc.z, 8, '#ffd37a'); }
     for (const b of s.balloons) if (!b.dead && Math.hypot(b.x - x, b.y - y, b.z - z) < radius) popBalloon(b, true);
     if (isEscort() && s.princess && !s.princess.safe && Math.hypot(s.princess.x - x, s.princess.z - z) < radius) hurtPrincess(2, 'Caught in the blast');
-    if (isBridge() && Math.abs(x) < BRIDGE_W + 1 && y < DECK_Y + 2) { const sp = spanAt(z); if (sp && !sp.down) collapseSpan(sp, 'Blown apart'); }
-    if (isBridge()) for (const b of s.builders) if (!b.dead && Math.hypot(b.x - x, b.z - z) < radius) { b.dead = true; burst(b.x, DECK_Y + 1, b.z, 8, '#c9a76a'); }
+    if (isCrossing() && z > RIVER_NEAR - 1 && z < RIVER_FAR + 1) s.churn.push({ x, t: 9 });
   }
   function explodeBarrel(b) {
     b.dead = true;
@@ -1943,7 +1864,7 @@
     for (const en of s.enemies) if (en.wolf && !en.dying && en.z < 18) { const k = Math.max(0, 1 - en.z / 18); wl += k * k; wx += en.x * k; wn += k; }
     SFX.setWolves(Math.min(1, wl), wn ? wx / wn : 0);
     // ambience by stage
-    const kind = !s.running ? null : ((s.level === 1 || s.level === 7) ? 'field' : (s.level === 8 || s.level === 9) ? 'citadel' : s.level === 2 ? 'forest' : s.level === 3 ? 'range' : s.level === 4 ? 'camp' : s.level === 5 ? 'raid' : 'citadel');
+    const kind = !s.running ? null : ((s.level === 1 || s.level === 7 || s.level === 9) ? 'field' : s.level === 8 ? 'citadel' : s.level === 2 ? 'forest' : s.level === 3 ? 'range' : s.level === 4 ? 'camp' : s.level === 5 ? 'raid' : 'citadel');
     SFX.ambience(kind);
   }
   function render() {
@@ -1963,7 +1884,7 @@
     if (s.level === 3) {
       drawRangeBackdrop(hy);
     } else if (s.level === 9) {
-      drawBridgeBackdrop(hy);
+      drawCrossingBackdrop(hy);
     } else if (s.level === 8) {
       drawCaravanBackdrop(hy);
     } else if (s.level === 6) {
@@ -2027,11 +1948,7 @@
     for (const b of s.balloons) items.push({ z: b.z, kind: 'balloon', o: b });
     if (s.level === 7 && s.princess) items.push({ z: s.princess.z, kind: 'princess', o: s.princess });
     if (s.level === 8) for (const o of s.scenery) items.push({ z: o.z, kind: 'scenery', o });
-    if (s.level === 9) {
-      for (const sp of s.spans) items.push({ z: sp.z1 - 0.01, kind: 'span', o: sp });
-      for (const b of s.builders) items.push({ z: b.z, kind: 'builder', o: b });
-      for (const sw of s.swimmers) items.push({ z: sw.z, kind: 'swimmer', o: sw });
-    }
+    if (s.level === 9) for (const c of s.churn) items.push({ z: (RIVER_NEAR + RIVER_FAR) / 2, kind: 'churn', o: c });
     for (const b of s.barrels) items.push({ z: b.z, kind: 'barrel', o: b });
     for (const bl of s.blasts) items.push({ z: bl.z - 0.01, kind: 'blast', o: bl });
     for (const st of s.stuck) items.push({ z: st.z, kind: 'stuck', o: st });
@@ -2055,9 +1972,7 @@
       else if (it.kind === 'balloon') drawBalloon(it.o);
       else if (it.kind === 'princess') drawPrincess(it.o);
       else if (it.kind === 'scenery') drawScenery(it.o);
-      else if (it.kind === 'span') drawSpan(it.o);
-      else if (it.kind === 'builder') drawBuilder(it.o);
-      else if (it.kind === 'swimmer') drawSwimmer(it.o);
+      else if (it.kind === 'churn') drawChurn(it.o);
       else if (it.kind === 'barrel') drawBarrel(it.o);
       else if (it.kind === 'blast') drawBlast(it.o);
       else if (it.kind === 'arrow') drawArrow(it.o);
@@ -2183,8 +2098,6 @@
       ctx.fillStyle = en.type === 'alpha' || en.type === 'hulk' ? '#ff5a3a' : '#e8392b';
       ctx.beginPath(); ctx.arc(cx + Math.sin(ang) * d, cy - Math.cos(ang) * d, Math.max(2, r * 0.07), 0, 6.28); ctx.fill();
     }
-    for (const sw of state.swimmers) { const d = Math.min(1, Math.hypot(sw.x, sw.z) / SPAWN_Z) * r * 0.9, ang = Math.atan2(sw.x, sw.z); ctx.fillStyle = '#8fb8d8'; ctx.beginPath(); ctx.arc(cx + Math.sin(ang) * d, cy - Math.cos(ang) * d, Math.max(2, r * 0.06), 0, 6.28); ctx.fill(); }
-    for (const b of state.builders) { const d = Math.min(1, Math.hypot(b.x, b.z) / SPAWN_Z) * r * 0.9, ang = Math.atan2(b.x, b.z); ctx.fillStyle = '#c9a76a'; ctx.fillRect(cx + Math.sin(ang) * d - 2, cy - Math.cos(ang) * d - 2, 4, 4); }
     if (state.princess && state.level === 7) { const pr = state.princess, d = Math.min(1, Math.hypot(pr.x, pr.z) / SPAWN_Z) * r * 0.9, ang = Math.atan2(pr.x, pr.z); ctx.fillStyle = '#ffd37a'; ctx.beginPath(); ctx.arc(cx + Math.sin(ang) * d, cy - Math.cos(ang) * d, Math.max(2.5, r * 0.09), 0, 6.28); ctx.fill(); }
     for (const inc of state.incoming) {
       const d = Math.min(1, Math.hypot(inc.x, inc.z) / SPAWN_Z) * r * 0.9, ang = Math.atan2(inc.x, inc.z);
@@ -2640,121 +2553,53 @@
     ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(p.sx, p.sy, w * 0.5, w * 0.14, 0, 0, 6.28); ctx.fill();
   }
 
-  // ---- Bridge: a stone bridge over a gorge at dusk, torches on the piers ----
-  function drawBridgeBackdrop(hy) {
+  // ---- The Crossing: a wide river between you and the far bank the pack runs along ----
+  function drawCrossingBackdrop(hy) {
     const sky = ctx.createLinearGradient(0, 0, 0, hy);
-    sky.addColorStop(0, '#0c1226'); sky.addColorStop(0.6, '#2a2a4e'); sky.addColorStop(1, '#8a5a52');
+    sky.addColorStop(0, '#0b1020'); sky.addColorStop(0.6, '#24304e'); sky.addColorStop(1, '#6a4a5a');
     ctx.fillStyle = sky; ctx.fillRect(-20, -20, W + 40, hy + 20);
-    const r = srand(6.6); ctx.fillStyle = 'rgba(230,235,250,.45)';
+    const r = srand(2.2); ctx.fillStyle = 'rgba(230,235,250,.45)';
     for (let i = 0; i < 40; i++) ctx.fillRect(r() * W, r() * hy * 0.6, 1.2, 1.2);
-    // far cliffs either side of the gorge
-    ctx.fillStyle = '#1c1a30';
-    ctx.beginPath(); ctx.moveTo(-20, hy); ctx.lineTo(-20, hy * 0.45); ctx.lineTo(W * 0.12, hy * 0.5); ctx.lineTo(W * 0.3, hy * 0.78); ctx.lineTo(W * 0.38, hy); ctx.closePath(); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(W + 20, hy); ctx.lineTo(W + 20, hy * 0.42); ctx.lineTo(W * 0.86, hy * 0.52); ctx.lineTo(W * 0.7, hy * 0.8); ctx.lineTo(W * 0.62, hy); ctx.closePath(); ctx.fill();
-    // far bank + gate they come from
-    ctx.fillStyle = '#141428'; ctx.fillRect(W * 0.3, hy * 0.92, W * 0.4, hy * 0.1);
-    ctx.fillStyle = '#0d0d1c'; ctx.fillRect(W * 0.46, hy * 0.8, W * 0.08, hy * 0.14); ctx.fillStyle = '#ff9a3a'; ctx.fillRect(W * 0.49, hy * 0.86, W * 0.02, hy * 0.06);
-    // the river, far to near
-    const riv = ctx.createLinearGradient(0, hy, 0, H);
-    riv.addColorStop(0, '#1a2a44'); riv.addColorStop(0.5, '#15243c'); riv.addColorStop(1, '#0c1626');
-    ctx.fillStyle = riv; ctx.fillRect(-20, hy, W + 40, H - hy + 20);
-    // moving ripples
+    const mx = W * 0.72, my = hy * 0.28, mr = W * 0.07;
+    const mg = ctx.createRadialGradient(mx, my, mr * 0.3, mx, my, mr * 3); mg.addColorStop(0, 'rgba(220,225,255,.35)'); mg.addColorStop(1, 'rgba(220,225,255,0)');
+    ctx.fillStyle = mg; ctx.beginPath(); ctx.arc(mx, my, mr * 3, 0, 6.28); ctx.fill();
+    ctx.fillStyle = '#e8ecf8'; ctx.beginPath(); ctx.arc(mx, my, mr, 0, 6.28); ctx.fill();
+    // hills and a dark treeline on the far shore
+    ctx.fillStyle = '#1a2038';
+    ctx.beginPath(); ctx.moveTo(-20, hy); ctx.quadraticCurveTo(W * 0.25, hy * 0.7, W * 0.5, hy * 0.82); ctx.quadraticCurveTo(W * 0.78, hy * 0.66, W + 20, hy * 0.84); ctx.lineTo(W + 20, hy); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#0d1226';
+    ctx.beginPath(); ctx.moveTo(-20, hy + 1);
+    for (let x = -20; x <= W + 20; x += 12) ctx.lineTo(x, hy - 4 - Math.abs(Math.sin(x * 0.19) * 10 + Math.sin(x * 0.06) * 6));
+    ctx.lineTo(W + 20, hy + 1); ctx.closePath(); ctx.fill();
+    // far bank: the strip they run along, with a few torches so the lanes read
+    const fb0 = project(0, 0, BANK_LANES[2] + 4), fb1 = project(0, 0, RIVER_FAR);
+    const bank = ctx.createLinearGradient(0, fb0.sy, 0, fb1.sy); bank.addColorStop(0, '#2a3040'); bank.addColorStop(1, '#3a3a44');
+    ctx.fillStyle = bank; ctx.fillRect(-20, fb0.sy, W + 40, fb1.sy - fb0.sy);
+    ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.lineWidth = 1;
+    for (const lz of BANK_LANES) { const q = project(0, 0, lz); ctx.beginPath(); ctx.moveTo(0, q.sy + 2); ctx.lineTo(W, q.sy + 2); ctx.stroke(); }
+    for (let i = -3; i <= 3; i++) { const tq = project(i * 5 + 2.5, 1.8, RIVER_FAR + 0.5), tb = project(i * 5 + 2.5, 0, RIVER_FAR + 0.5); ctx.strokeStyle = '#110c0a'; ctx.lineWidth = Math.max(1.5, tq.s * 0.08); ctx.beginPath(); ctx.moveTo(tb.sx, tb.sy); ctx.lineTo(tq.sx, tq.sy); ctx.stroke(); ctx.save(); ctx.globalCompositeOperation = 'lighter'; const g = ctx.createRadialGradient(tq.sx, tq.sy, 1, tq.sx, tq.sy, tq.s * 1.1); g.addColorStop(0, 'rgba(255,180,80,.45)'); g.addColorStop(1, 'rgba(255,110,30,0)'); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(tq.sx, tq.sy, tq.s * 1.1, 0, 6.28); ctx.fill(); ctx.restore(); ctx.fillStyle = '#ff8a2a'; ctx.beginPath(); ctx.ellipse(tq.sx, tq.sy - tq.s * 0.1, tq.s * 0.1, tq.s * 0.2, 0, 0, 6.28); ctx.fill(); }
+    // the river
+    const r0 = project(0, 0, RIVER_FAR), r1 = project(0, 0, RIVER_NEAR);
+    const riv = ctx.createLinearGradient(0, r0.sy, 0, r1.sy); riv.addColorStop(0, '#1a2a44'); riv.addColorStop(1, '#223a58');
+    ctx.fillStyle = riv; ctx.fillRect(-20, r0.sy, W + 40, r1.sy - r0.sy);
     const t = performance.now() / 1000;
-    ctx.strokeStyle = 'rgba(140,180,220,.12)'; ctx.lineWidth = 1;
-    for (let i = 0; i < 24; i++) { const z = 2 + ((i * 2.1 + t * 0.8) % 48), q = project(((i * 7.3) % 20) - 10, 0, z); ctx.beginPath(); ctx.moveTo(q.sx - q.s * 0.8, q.sy); ctx.lineTo(q.sx + q.s * 0.8, q.sy); ctx.stroke(); }
-    // torch reflections
-    for (const sp of state.spans) { if (sp.down) continue; const q = project(BRIDGE_W + 0.4, 0, sp.z0 + 0.3); ctx.save(); ctx.globalCompositeOperation = 'lighter'; const g = ctx.createRadialGradient(q.sx, q.sy + q.s * 0.3, 1, q.sx, q.sy + q.s * 0.3, q.s * 1.4); g.addColorStop(0, 'rgba(255,150,60,.25)'); g.addColorStop(1, 'rgba(255,150,60,0)'); ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(q.sx, q.sy + q.s * 0.3, q.s * 1.4, q.s * 0.5, 0, 0, 6.28); ctx.fill(); ctx.restore(); }
-    // near bank under the gate
-    const nb = project(0, 0, BRIDGE_Z0);
-    ctx.fillStyle = '#2a2430'; ctx.fillRect(-20, nb.sy, W + 40, H - nb.sy + 20);
-  }
-  function drawSpan(sp) {
-    const a0 = project(-BRIDGE_W, DECK_Y, sp.z0), a1 = project(BRIDGE_W, DECK_Y, sp.z0), b0 = project(-BRIDGE_W, DECK_Y, sp.z1), b1 = project(BRIDGE_W, DECK_Y, sp.z1);
-    const depth = Math.min(1, sp.z0 / 40);
-    // pier at the far end of the span
-    const pt = project(BRIDGE_W + 0.25, DECK_Y, sp.z1), pb = project(BRIDGE_W + 0.25, 0, sp.z1), pl = project(-BRIDGE_W - 0.25, DECK_Y, sp.z1), plb = project(-BRIDGE_W - 0.25, 0, sp.z1);
-    ctx.fillStyle = mix('#2a2a3a', '#4a4a62', depth);
-    ctx.fillRect(pt.sx - pt.s * 0.3, pt.sy, pt.s * 0.6, pb.sy - pt.sy + pt.s * 1.5);
-    ctx.fillRect(pl.sx - pl.s * 0.3, pl.sy, pl.s * 0.6, plb.sy - pl.sy + pl.s * 1.5);
-    if (sp.down) {
-      // broken stubs either end, rubble in the water
-      const k = Math.min(1, sp.fallT / 0.6);
-      ctx.fillStyle = mix('#3a3a4c', '#5a5a74', depth);
-      const s0 = project(-BRIDGE_W, DECK_Y, sp.z0), s1 = project(BRIDGE_W, DECK_Y, sp.z0), e0 = project(-BRIDGE_W, DECK_Y, sp.z0 + 0.9), e1 = project(BRIDGE_W, DECK_Y, sp.z0 + 0.9);
-      ctx.beginPath(); ctx.moveTo(s0.sx, s0.sy); ctx.lineTo(s1.sx, s1.sy); ctx.lineTo(e1.sx, e1.sy + 6 * k); ctx.lineTo(e0.sx, e0.sy + 6 * k); ctx.closePath(); ctx.fill();
-      const f0 = project(-BRIDGE_W, DECK_Y, sp.z1 - 0.9), f1 = project(BRIDGE_W, DECK_Y, sp.z1 - 0.9);
-      ctx.beginPath(); ctx.moveTo(f0.sx, f0.sy + 6 * k); ctx.lineTo(f1.sx, f1.sy + 6 * k); ctx.lineTo(b1.sx, b1.sy); ctx.lineTo(b0.sx, b0.sy); ctx.closePath(); ctx.fill();
-      // falling deck piece during the collapse
-      if (sp.fallT < 1.2) {
-        const drop = sp.fallT * sp.fallT * 3;
-        const d0 = project(-BRIDGE_W, DECK_Y - drop, sp.z0 + 1), d1 = project(BRIDGE_W, DECK_Y - drop, sp.z0 + 1), d2 = project(BRIDGE_W, DECK_Y - drop * 1.3, sp.z1 - 1), d3 = project(-BRIDGE_W, DECK_Y - drop * 1.3, sp.z1 - 1);
-        ctx.save(); ctx.globalAlpha = Math.max(0, 1 - sp.fallT / 1.2); ctx.fillStyle = '#3a3a4c';
-        ctx.beginPath(); ctx.moveTo(d0.sx, d0.sy); ctx.lineTo(d1.sx, d1.sy); ctx.lineTo(d2.sx, d2.sy); ctx.lineTo(d3.sx, d3.sy); ctx.closePath(); ctx.fill(); ctx.restore();
-      }
-      // repair in progress: planks laid out from the far end
-      if (sp.repair > 0) {
-        const len = SPAN_LEN * sp.repair;
-        const r0 = project(-BRIDGE_W * 0.8, DECK_Y, sp.z1 - len), r1 = project(BRIDGE_W * 0.8, DECK_Y, sp.z1 - len), r2 = project(BRIDGE_W * 0.8, DECK_Y, sp.z1), r3 = project(-BRIDGE_W * 0.8, DECK_Y, sp.z1);
-        ctx.fillStyle = '#8a6a3c'; ctx.beginPath(); ctx.moveTo(r0.sx, r0.sy); ctx.lineTo(r1.sx, r1.sy); ctx.lineTo(r2.sx, r2.sy); ctx.lineTo(r3.sx, r3.sy); ctx.closePath(); ctx.fill();
-        ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 1; for (let i = 1; i < 6; i++) { const q0 = project(-BRIDGE_W * 0.8, DECK_Y, sp.z1 - len * i / 6), q1 = project(BRIDGE_W * 0.8, DECK_Y, sp.z1 - len * i / 6); ctx.beginPath(); ctx.moveTo(q0.sx, q0.sy); ctx.lineTo(q1.sx, q1.sy); ctx.stroke(); }
-      }
-      return;
+    ctx.strokeStyle = 'rgba(160,200,240,.14)'; ctx.lineWidth = 1;
+    for (let i = 0; i < 40; i++) { const z = RIVER_NEAR + 0.5 + ((i * 1.7) % (RIVER_FAR - RIVER_NEAR - 1)), x = ((i * 5.3 + t * 1.2) % 40) - 20, q = project(x, 0, z); ctx.beginPath(); ctx.moveTo(q.sx - q.s * 0.6, q.sy); ctx.lineTo(q.sx + q.s * 0.6, q.sy); ctx.stroke(); }
+    // fords: pale shallows across the river
+    for (const fx of FORDS) {
+      const a = project(fx - 1.4, 0, RIVER_FAR), b = project(fx + 1.4, 0, RIVER_FAR), c = project(fx + 1.8, 0, RIVER_NEAR), d = project(fx - 1.8, 0, RIVER_NEAR);
+      ctx.fillStyle = 'rgba(150,170,190,.18)'; ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.lineTo(c.sx, c.sy); ctx.lineTo(d.sx, d.sy); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(110,110,120,.6)';
+      for (let i = 0; i < 6; i++) { const q = project(fx + (Math.sin(i * 2.3 + fx) * 1.2), 0, RIVER_NEAR + 0.8 + i * (RIVER_FAR - RIVER_NEAR - 1.6) / 5); ctx.beginPath(); ctx.ellipse(q.sx, q.sy, q.s * 0.25, q.s * 0.1, 0, 0, 6.28); ctx.fill(); }
     }
-    // deck
-    const burn = sp.burning > 0 ? 1 - sp.burning / SPAN_BURN : 0;
-    let deck = mix('#3a3a4c', '#5a5a74', depth); if (burn) deck = mix(deck, '#1a0d08', burn * 0.8);
-    ctx.fillStyle = deck;
-    ctx.beginPath(); ctx.moveTo(a0.sx, a0.sy); ctx.lineTo(a1.sx, a1.sy); ctx.lineTo(b1.sx, b1.sy); ctx.lineTo(b0.sx, b0.sy); ctx.closePath(); ctx.fill();
-    // arch under the deck
-    ctx.fillStyle = mix('#22222f', '#3a3a50', depth);
-    const m0 = project(-BRIDGE_W, 0, sp.z0), m1 = project(BRIDGE_W, 0, sp.z0);
-    ctx.beginPath(); ctx.moveTo(a0.sx, a0.sy); ctx.lineTo(a1.sx, a1.sy); ctx.lineTo(m1.sx, m1.sy + a0.s * 1.2); ctx.quadraticCurveTo((m0.sx + m1.sx) / 2, m0.sy - a0.s * 0.6, m0.sx, m0.sy + a0.s * 1.2); ctx.closePath(); ctx.fill();
-    // flagstones
-    ctx.strokeStyle = 'rgba(0,0,0,.3)'; ctx.lineWidth = 1;
-    for (let i = 1; i < 5; i++) { const q0 = project(-BRIDGE_W, DECK_Y, sp.z0 + SPAN_LEN * i / 5), q1 = project(BRIDGE_W, DECK_Y, sp.z0 + SPAN_LEN * i / 5); ctx.beginPath(); ctx.moveTo(q0.sx, q0.sy); ctx.lineTo(q1.sx, q1.sy); ctx.stroke(); }
-    // low parapets
-    for (const d of [-1, 1]) { const w0 = project(d * BRIDGE_W, DECK_Y + 0.5, sp.z0), w1 = project(d * BRIDGE_W, DECK_Y + 0.5, sp.z1), g0 = project(d * BRIDGE_W, DECK_Y, sp.z0), g1 = project(d * BRIDGE_W, DECK_Y, sp.z1); ctx.fillStyle = mix('#2e2e40', '#4e4e68', depth); ctx.beginPath(); ctx.moveTo(g0.sx, g0.sy); ctx.lineTo(w0.sx, w0.sy); ctx.lineTo(w1.sx, w1.sy); ctx.lineTo(g1.sx, g1.sy); ctx.closePath(); ctx.fill(); }
-    // torch on the right pier
-    const tq = project(BRIDGE_W + 0.4, DECK_Y + 1.6, sp.z0 + 0.3), tb = project(BRIDGE_W + 0.4, DECK_Y + 0.5, sp.z0 + 0.3);
-    ctx.strokeStyle = '#110c0a'; ctx.lineWidth = Math.max(1.5, tq.s * 0.08); ctx.beginPath(); ctx.moveTo(tb.sx, tb.sy); ctx.lineTo(tq.sx, tq.sy); ctx.stroke();
-    const fl = 0.85 + Math.sin(performance.now() / 70 + sp.i) * 0.1;
-    ctx.save(); ctx.globalCompositeOperation = 'lighter'; const g = ctx.createRadialGradient(tq.sx, tq.sy, 1, tq.sx, tq.sy, tq.s * 1.2 * fl); g.addColorStop(0, 'rgba(255,180,80,.5)'); g.addColorStop(1, 'rgba(255,110,30,0)'); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(tq.sx, tq.sy, tq.s * 1.2 * fl, 0, 6.28); ctx.fill(); ctx.restore();
-    ctx.fillStyle = '#ff8a2a'; ctx.beginPath(); ctx.ellipse(tq.sx, tq.sy - tq.s * 0.1, tq.s * 0.12, tq.s * 0.22 * fl, 0, 0, 6.28); ctx.fill();
-    if (burn > 0) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.35; const c = project(0, DECK_Y, (sp.z0 + sp.z1) / 2); const gg = ctx.createRadialGradient(c.sx, c.sy, 1, c.sx, c.sy, c.s * 3); gg.addColorStop(0, 'rgba(255,150,60,.8)'); gg.addColorStop(1, 'rgba(255,90,20,0)'); ctx.fillStyle = gg; ctx.beginPath(); ctx.ellipse(c.sx, c.sy, c.s * 3, c.s * 1.2, 0, 0, 6.28); ctx.fill(); ctx.restore(); }
+    // near bank
+    const nb = project(0, 0, RIVER_NEAR);
+    const near = ctx.createLinearGradient(0, nb.sy, 0, H); near.addColorStop(0, '#3a3a44'); near.addColorStop(1, '#1a1a22');
+    ctx.fillStyle = near; ctx.fillRect(-20, nb.sy, W + 40, H - nb.sy + 20);
   }
-  function drawBuilder(b) {
-    const p = project(b.x, DECK_Y, b.z), u = p.s, h = 1.7 * u, w = 0.6 * u;
-    const step = Math.sin(b.bob) * h * 0.05;
-    ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.beginPath(); ctx.ellipse(p.sx, p.sy, w * 0.5, w * 0.15, 0, 0, 6.28); ctx.fill();
-    ctx.strokeStyle = '#3a2a1a'; ctx.lineWidth = Math.max(2, w * 0.16); ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(p.sx - w * 0.1, p.sy - h * 0.45); ctx.lineTo(p.sx - w * 0.18 + step, p.sy); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(p.sx + w * 0.1, p.sy - h * 0.45); ctx.lineTo(p.sx + w * 0.18 - step, p.sy); ctx.stroke();
-    ctx.fillStyle = '#6a4a2a'; roundRect(p.sx - w * 0.25, p.sy - h * 0.78, w * 0.5, h * 0.36, w * 0.1); ctx.fill();
-    ctx.fillStyle = '#d9b08a'; ctx.beginPath(); ctx.arc(p.sx, p.sy - h * 0.86, w * 0.2, 0, 6.28); ctx.fill();
-    // planks on the shoulder
-    ctx.fillStyle = '#c9a76a'; ctx.save(); ctx.translate(p.sx + w * 0.2, p.sy - h * 0.8); ctx.rotate(-0.3); ctx.fillRect(-w * 0.5, -w * 0.08, w * 1.0, w * 0.16); ctx.restore();
-    if (b.work > 0) { ctx.strokeStyle = '#3a2a1a'; ctx.lineWidth = Math.max(2, w * 0.12); const sw = Math.sin(b.bob * 2) * w * 0.3; ctx.beginPath(); ctx.moveTo(p.sx + w * 0.25, p.sy - h * 0.7); ctx.lineTo(p.sx + w * 0.5 + sw, p.sy - h * 0.5); ctx.stroke(); }
-  }
-  function drawSwimmer(sw) {
-    const y = sw.phase === 'climb' ? sw.climb * 0.9 : 0.05;
-    const p = project(sw.x, y, sw.z), u = p.s, w = 0.6 * u;
-    ctx.fillStyle = '#3a4a3a';
-    if (sw.phase === 'swim') {
-      // head and reaching arms above the water, ripples around
-      ctx.strokeStyle = 'rgba(160,200,240,.35)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.ellipse(p.sx, p.sy, w * 0.9, w * 0.3, 0, 0, 6.28); ctx.stroke();
-      ctx.beginPath(); ctx.arc(p.sx, p.sy - w * 0.25, w * 0.22, 0, 6.28); ctx.fill();
-      ctx.strokeStyle = '#3a4a3a'; ctx.lineWidth = Math.max(2, w * 0.14); ctx.lineCap = 'round';
-      const r = Math.sin(sw.bob) * w * 0.3;
-      ctx.beginPath(); ctx.moveTo(p.sx - w * 0.2, p.sy - w * 0.1); ctx.lineTo(p.sx - w * 0.5, p.sy - w * 0.5 - r); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(p.sx + w * 0.2, p.sy - w * 0.1); ctx.lineTo(p.sx + w * 0.5, p.sy - w * 0.5 + r); ctx.stroke();
-      ctx.fillStyle = '#f3f05a'; ctx.fillRect(p.sx - w * 0.1, p.sy - w * 0.3, w * 0.07, w * 0.05); ctx.fillRect(p.sx + w * 0.03, p.sy - w * 0.3, w * 0.07, w * 0.05);
-    } else {
-      // hauling up the bank
-      const h = 1.6 * u;
-      ctx.fillRect(p.sx - w * 0.22, p.sy - h * 0.6, w * 0.44, h * 0.5);
-      ctx.beginPath(); ctx.arc(p.sx, p.sy - h * 0.72, w * 0.22, 0, 6.28); ctx.fill();
-      ctx.fillStyle = '#f3f05a'; ctx.fillRect(p.sx - w * 0.1, p.sy - h * 0.75, w * 0.07, w * 0.05); ctx.fillRect(p.sx + w * 0.03, p.sy - h * 0.75, w * 0.07, w * 0.05);
-    }
+  function drawChurn(c) {
+    const k = Math.min(1, c.t / 9);
+    for (let i = 0; i < 5; i++) { const q = project(c.x + (Math.sin(i * 1.9 + c.t * 3) * 1.6), 0, RIVER_NEAR + 1 + i * 1.8); ctx.fillStyle = 'rgba(220,235,250,' + (0.25 * k) + ')'; ctx.beginPath(); ctx.ellipse(q.sx, q.sy, q.s * (0.5 + Math.sin(c.t * 5 + i) * 0.15), q.s * 0.18, 0, 0, 6.28); ctx.fill(); }
   }
 
   // ---- Caravan: looking back down the road from the wagon's tailgate ----
@@ -3195,6 +3040,7 @@
     ctx.scale(1 + (1 - squash) * 0.5, squash);
     if (en.dying && !en.reached && !en.plunge) ctx.rotate((en.dying) * 1.4 * (en.x < 0 ? -1 : 1));
     if (en.plunge) { ctx.translate(0, en.dying * en.dying * 260); ctx.rotate(en.dying * 2.5 * (en.x < 0 ? -1 : 1)); }
+    if (en.wading) { ctx.save(); ctx.beginPath(); ctx.rect(-w * 2, -h * 2, w * 4, h * 2 - h * 0.35); ctx.clip(); }
     // Shadow (stays on the ground even mid-leap)
     ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(0, -lurch, w * 0.6, w * 0.18, 0, 0, 6.28); ctx.fill();
     const charred = en.burning > 0 ? Math.min(1, (BURN_TIME - en.burning) / BURN_TIME + 0.3) : 0;
@@ -3225,6 +3071,7 @@
       if (en.hit > 0) { skin = '#ffffff'; cloth = '#ffffff'; }
       body(skin, cloth);
     }
+    if (en.wading) { ctx.restore(); ctx.strokeStyle = 'rgba(160,200,240,.45)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.ellipse(0, -h * 0.35, w * 0.8, w * 0.22, 0, 0, 6.28); ctx.stroke(); }
     // Health pips for anything with more than 1 HP
     if (en.maxHp > 1 && !en.dying) {
       const n = en.maxHp, pw = w * 0.7 / n;
@@ -3259,7 +3106,7 @@
     ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
   }
   // Which way the body is turned (-1 left .. +1 right): they drift toward the gate, so a wolf on the left is turned right.
-  function facing(en) { return Math.max(-1, Math.min(1, -en.x / 6 + en.veer * 0.25)); }
+  function facing(en) { if (en.phase === 'bank') return en.runDir; return Math.max(-1, Math.min(1, -en.x / 6 + en.veer * 0.25)); }
 
   function drawZombieBody(en, w, h, skin, cloth, p) {
     const face = facing(en), m = en.dying ? 0 : Math.min(1.4, en.speedMul);
@@ -3787,7 +3634,7 @@
     if (level === 4 || level === 5) enterCamp(level);
     if (level === 7) enterEscort();
     if (level === 8) enterCaravan();
-    if (level === 9) enterBridge();
+    if (level === 9) state.level = 9;
     if (level === 6) state.level = 6;
     scoreEl.textContent = '0'; updateHP(); updateBuffs();
     startScr.classList.add('hidden'); overScr.classList.add('hidden'); hud.style.display = 'block';
@@ -3800,7 +3647,7 @@
     if (state.score > best) { best = state.score; try { localStorage.setItem('rampart-best', String(best)); } catch (e) {} }
     document.getElementById('overScore').textContent = state.score;
     lastLevel = state.level;
-    const names = { 1: 'the field', 2: 'the forest', 4: 'the camp', 5: 'the raid', 6: 'the citadel', 7: 'the escort', 8: 'the caravan', 9: 'the bridge' };
+    const names = { 1: 'the field', 2: 'the forest', 4: 'the camp', 5: 'the raid', 6: 'the citadel', 7: 'the escort', 8: 'the caravan', 9: 'the crossing' };
     document.getElementById('againBtn').textContent = state.level === 1 ? 'Hold the wall again' : 'Replay ' + names[state.level];
     document.getElementById('switchBtn').textContent = 'Choose a stage';
     document.getElementById('overTitle').textContent = state.level === 8 ? 'The wagon went down' : state.level === 7 ? (state.princess && state.princess.hp <= 0 ? 'The princess fell' : 'The princess was taken') : state.level === 6 ? 'The wall is burning' : (state.level === 1 ? 'The dead are over the wall' : 'The pack is over the wall');
