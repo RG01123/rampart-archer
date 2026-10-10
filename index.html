@@ -50,6 +50,9 @@
   #hud .firebtn[aria-pressed="true"] { border-color: #ff8a2a; color: #ffb347; box-shadow: 0 0 16px rgba(255,138,42,.55); }
   #hud .firebtn:disabled { opacity: .45; }
   #hud .barrelbtn { left: auto; right: 14px; }
+  #hud .bombbtn { left: 86px; width: 56px; height: 56px; bottom: calc(68px + env(safe-area-inset-bottom, 0px)); font-size: .9rem; }
+  #hud .bombbtn[aria-pressed="true"] { border-color: #ff5a3a; color: #ff8a6a; box-shadow: 0 0 16px rgba(255,90,58,.55); }
+  #hud.range #bombBtn { display: none; }
   #hud .look { position: absolute; top: 50%; transform: translateY(-50%); width: 40px; height: 72px; pointer-events: auto; background: rgba(10,8,20,.35); color: var(--ui); border: 1.5px solid rgba(244,234,214,.25); font: 700 1.8rem Georgia, serif; line-height: 1; touch-action: none; -webkit-user-select: none; user-select: none; }
   #hud #lookL { left: 0; border-left: 0; border-radius: 0 12px 12px 0; }
   #hud #lookR { right: 0; border-right: 0; border-radius: 12px 0 0 12px; }
@@ -112,6 +115,7 @@
       </div>
     </div>
     <button class="firebtn" id="fireBtn" type="button" aria-pressed="false">🔥 <span id="fireCount">0</span></button>
+    <button class="firebtn bombbtn" id="bombBtn" type="button" aria-pressed="false">💣 <span id="bombCount">0</span></button>
     <button class="firebtn barrelbtn" id="barrelBtn" type="button">🛢 <span id="barrelCount">0</span></button>
     <button class="firebtn atbtn" id="atBtn" type="button" aria-pressed="false" aria-label="Arrow time">⏱</button>
     <button class="look" id="lookL" type="button" aria-label="Look left">‹</button>
@@ -132,6 +136,7 @@
     <div id="howto" class="howto hidden">
       <p>Touch anywhere and slide: up raises the bow for distance, down lowers it for a flat, close shot. Sideways to aim. Release to loose. Aim for the head.</p>
       <p>Tap the flame button to swap to fire bolts. You get a few each wave. Fire spreads between enemies that touch.</p>
+      <p>The bomb button loads an explosive bolt: it blows up on whatever it hits, like a barrel. One or two per wave.</p>
       <p>Shoot the glowing things that dart across the field. Orange gives fire bolts, pale blue gives silver bolts that kill in one hit, gold gives a three-bolt volley.</p>
       <p>Barrels roll through when the pack is close. A fire bolt blows one up, and anything near it. Roll your own from the wall with the barrel button, two per wave.</p>
       <p>The target range gives you 20 bolts and a mix of still and moving targets. Rings score 10, 7, 5 and 3; moving targets count double.</p>
@@ -208,6 +213,7 @@
   const BURN_TICK = 1.3;        // seconds between burn damage
   const SPREAD_RANGE = 1.3;     // meters: burning zombies ignite others this close
   const fireBoltsForWave = n => 3 + Math.floor(n / 2);
+  const bombBoltsForWave = n => n >= 3 ? 2 : 1;
   const FOREST_WAVE = 6;        // stage 2 begins at this wave
   const AMBIENT_NEAR = 7;       // meters: fully lit by moonlight closer than this
   const AMBIENT_FAR = 26;       // meters: essentially black beyond this
@@ -286,7 +292,7 @@
       running: false, score: 0, wave: 0, hp: MAX_HP,
       enemies: [], arrows: [], particles: [], stuck: [],
       spawnQueue: [], spawnTimer: 0, waveClearTimer: 0,
-      reload: 0, shotsFired: 0, arrowType: 'normal', fireAmmo: 0,
+      reload: 0, shotsFired: 0, arrowType: 'normal', fireAmmo: 0, bombAmmo: 0,
       silver: 0, volley: 0, critters: [], critterTimer: 6 + Math.random() * 6,
       barrels: [], barrelTimer: 14 + Math.random() * 10, blasts: [], barrelAmmo: 0,
       atArmed: false, atCooldown: 0,
@@ -368,7 +374,7 @@
   function enterRange() {
     state.level = 3;
     state.bolts = RANGE_BOLTS; state.rangeDone = false;
-    state.fireAmmo = 0; state.barrelAmmo = 0; updateFireBtn();
+    state.fireAmmo = 0; state.bombAmmo = 0; state.barrelAmmo = 0; updateFireBtn();
     // static bullseyes at several distances, then movers worth double
     state.targets = [
       { x: -2.5, z: 6, y: 1.1, r: 0.55, kind: 'static' },
@@ -408,7 +414,7 @@
     if (state.level === 1 && state.wave === FOREST_WAVE) {
       enterForest();
       waveEl.textContent = 'Wave ' + state.wave;
-      state.fireAmmo = fireBoltsForWave(state.wave); state.barrelAmmo = 2; updateFireBtn();
+      state.fireAmmo = fireBoltsForWave(state.wave); state.bombAmmo = bombBoltsForWave(state.wave); state.barrelAmmo = 2; updateFireBtn();
       state.spawnQueue = buildWave(state.wave); state.spawnTimer = 3.5;
       showBanner('Into the forest', 2600);
       return;
@@ -417,6 +423,7 @@
     state.spawnTimer = 1.2;
     waveEl.textContent = 'Wave ' + state.wave;
     state.fireAmmo = fireBoltsForWave(state.wave);
+    state.bombAmmo = bombBoltsForWave(state.wave);
     state.barrelAmmo = 2;
     updateFireBtn();
     showBanner('Wave ' + state.wave);
@@ -486,6 +493,8 @@
     if (state.level === 3) { if (state.bolts <= 0) return; state.bolts--; remainEl.textContent = state.bolts; }
     const flaming = state.arrowType === 'fire' && state.fireAmmo > 0;
     if (flaming) { state.fireAmmo--; if (state.fireAmmo <= 0) state.arrowType = 'normal'; updateFireBtn(); }
+    const bomb = state.arrowType === 'bomb' && state.bombAmmo > 0;
+    if (bomb) { state.bombAmmo--; if (state.bombAmmo <= 0) state.arrowType = 'normal'; updateFireBtn(); }
     const silver = state.silver > 0; if (silver) state.silver--;
     const spread = state.volley > 0 ? [-6, 0, 6] : [0]; if (state.volley > 0) state.volley--;
     let center = null;
@@ -494,7 +503,7 @@
       const hv = Math.hypot(vel.vx, vel.vz);
       const tip = bowG ? { x: bowG.tip.x, y: bowG.tip.y } : null;
       const o = launchOrigin();
-      const arrow = { x: o.x, y: EYE_H - 0.1, z: o.z, vx: hv * Math.sin(yaw), vy: vel.vy, vz: hv * Math.cos(yaw), life: 0, fire: flaming, silver, tip };
+      const arrow = { x: o.x, y: EYE_H - 0.1, z: o.z, vx: hv * Math.sin(yaw), vy: vel.vy, vz: hv * Math.cos(yaw), life: 0, fire: flaming, bomb, silver, tip };
       state.arrows.push(arrow); if (deg === 0) center = arrow;
     }
     if (center && !ride) {
@@ -1073,8 +1082,13 @@
     for (const a of s.arrows) {
       a.life += dt;
       if (a.fire && a.life >= LAUNCH_BLEND && Math.random() < 0.8) flame(a.x, a.y, a.z, true);
+      if (a.bomb && a.life >= LAUNCH_BLEND) {
+        if (Math.random() < 0.5) flame(a.x, a.y, a.z, true);
+        if (Math.random() < 0.7) s.particles.push({ x: a.x, y: a.y, z: a.z, vx: (Math.random() - 0.5) * 0.3, vy: 0.4 + Math.random() * 0.4, t: 0, life: 0.6 + Math.random() * 0.4, color: '#5a5a62', r: 0.08 + Math.random() * 0.08 });
+      }
       a.vy -= GRAVITY * dt;
       a.x += a.vx * dt; a.y += a.vy * dt; a.z += a.vz * dt;
+      if (a.y <= 0 && a.bomb) { bombDetonate(a); continue; }
       if (a.y <= 0) {
         a.dead = true; s.stuck.push({ x: a.x, z: a.z, t: 0, yaw: Math.atan2(a.vx, a.vz), fire: a.fire });
         if (a.fire && isDark()) for (const tr of s.trees) if (tr.type === 'bush' && Math.abs(a.x - tr.x) < tr.w * 0.8 && Math.abs(a.z - tr.z) < 0.9) { igniteTree(tr); break; }
@@ -1087,6 +1101,7 @@
         if (a.fire) for (const tr of s.trees) if (tr.type === 'bush' && !tr.burning && !tr.charred && a.y < tr.h && Math.abs(a.x - tr.x) < tr.w * 0.8 && Math.abs(a.z - tr.z) < 0.6) igniteTree(tr);
         for (const tr of s.trees) {
           if (treeHit(tr, a.x, a.y, a.z)) {
+            if (a.bomb) { bombDetonate(a); blocked = true; break; }
             a.dead = true; blocked = true;
             s.stuck.push({ x: a.x, y: a.y, z: tr.z - 0.3, t: 0, yaw: Math.atan2(a.vx, a.vz), fire: a.fire, inTree: true });
             burst(a.x, a.y, a.z, 5, '#6b5a3a'); SFX.hit('wood', a.x, a.z);
@@ -1102,6 +1117,7 @@
         for (const inc of s.incoming) {
           if (inc.dead) continue;
           if (Math.abs(a.x - inc.x) < 0.85 && Math.abs(a.y - inc.y) < 0.85 && Math.abs(a.z - inc.z) < 1.0) {
+            if (a.bomb) { bombDetonate(a); stop = true; break; }
             inc.dead = true; a.dead = true; stop = true;
             burst(inc.x, inc.y, inc.z, 18, '#ffd37a'); burst(inc.x, inc.y, inc.z, 8, '#ff8a2a');
             s.score += 5; scoreEl.textContent = s.score; floatText(inc.x, inc.y + 0.4, inc.z, '+5');
@@ -1110,6 +1126,7 @@
         }
         if (!stop) for (const L of LEDGES) {
           if (a.x > L.x0 && a.x < L.x1 && a.z > L.z - 0.4 && a.z < L.z + L.d && a.y < L.y) {
+            if (a.bomb) { bombDetonate(a); stop = true; break; }
             a.dead = true; stop = true; s.stuck.push({ x: a.x, y: a.y, z: L.z - 0.4, t: 0, yaw: 0, inTree: true }); burst(a.x, a.y, a.z, 5, '#6a6e80'); SFX.hit('wood', a.x, a.z); break;
           }
         }
@@ -1120,6 +1137,7 @@
         const r = en.w * 0.55, b0 = en.baseY || 0;
         if (Math.abs(a.x - en.x) < r && Math.abs(a.z - en.z) < r + 0.35 && a.y >= b0 && a.y <= b0 + en.h) {
           const head = (a.y - b0) > en.h * 0.72;
+          if (a.bomb) { bombDetonate(a); break; }
           SFX.hit(en.archer ? 'archer' : (en.wolf ? 'wolf' : 'zombie'), en.x, en.z, head);
           en.hp -= a.silver ? 99 : (head ? 2 : 1); en.hit = 0.15;
           if (a.silver) burst(en.x, a.y, en.z, 12, '#cfe6ff');
@@ -1137,7 +1155,8 @@
         if (b.dead) continue;
         if (Math.abs(a.x - b.x) < b.r + 0.15 && Math.abs(a.z - b.z) < b.r + 0.4 && a.y < b.r * 2.1) {
           a.dead = true;
-          if (a.fire) explodeBarrel(b);
+          if (a.bomb) { bombDetonate(a); explodeBarrel(b); }
+          else if (a.fire) explodeBarrel(b);
           else { burst(a.x, a.y, a.z, 6, '#8a6a3a'); b.vx *= 0.75; SFX.hit('wood', a.x, a.z); }   // a plain bolt just thunks in and slows it
           break;
         }
@@ -1149,6 +1168,7 @@
       for (const c of s.critters) {
         if (c.hit) continue;
         if (Math.abs(a.x - c.x) < 0.75 && Math.abs(a.z - c.z) < 0.9 && Math.abs(a.y - c.y) < 0.7) {
+          if (a.bomb) { bombDetonate(a); break; }
           c.hit = 0.01; a.dead = true; SFX.hit('critter', c.x, c.z);
           burst(c.x, c.y, c.z, 16, REWARDS[c.reward].color);
           floatText(c.x, c.y + 0.6, c.z, REWARDS[c.reward].label);
@@ -1297,21 +1317,31 @@
     state.barrels.push({ x: 0, z: 0.9, r: BARREL_R, vx: 0, vz: 7.5 + Math.random() * 1.5, rot: 0, dead: false, away: true });
     buzz([15, 30, 15]);
   }
-  function explodeBarrel(b) {
-    b.dead = true;
+  // A blast at a world point. Used by barrels and explosive bolts.
+  function blastAt(x, y, z, radius, skipBarrel) {
     const s = state;
-    s.blasts.push({ x: b.x, z: b.z, t: 0 });
-    s.shake = Math.max(s.shake, 1.2); buzz([30, 20, 60]); SFX.explosion(b.x, b.z);
-    burst(b.x, b.r, b.z, 36, '#ffb347'); burst(b.x, b.r, b.z, 18, '#6b5a3a');
-    for (let i = 0; i < 24; i++) flame(b.x + (Math.random() - 0.5) * 2.5, Math.random() * 2.2, b.z + (Math.random() - 0.5) * 1.5);
+    s.blasts.push({ x, z, t: 0 });
+    s.shake = Math.max(s.shake, 1.2); buzz([30, 20, 60]); SFX.explosion(x, z);
+    burst(x, Math.max(0.3, y), z, 36, '#ffb347'); burst(x, Math.max(0.3, y), z, 18, '#6b5a3a');
+    for (let i = 0; i < 24; i++) flame(x + (Math.random() - 0.5) * 2.5, Math.max(0, y - 0.5) + Math.random() * 2.2, z + (Math.random() - 0.5) * 1.5);
     for (const en of s.enemies) {
       if (en.dying) continue;
-      const d = Math.hypot(en.x - b.x, en.z - b.z);
-      if (d < BLAST_RADIUS) { en.hp -= d < BLAST_RADIUS * 0.5 ? 4 : 2; en.hit = 0.2; ignite(en); if (en.hp <= 0) killEnemy(en, false); }
+      const d = Math.hypot(en.x - x, (en.baseY || 0) + en.h * 0.5 - y, en.z - z);
+      if (d < radius) { en.hp -= d < radius * 0.5 ? 4 : 2; en.hit = 0.2; ignite(en); if (en.hp <= 0) killEnemy(en, false); }
     }
-    if (isDark()) for (const tr of s.trees) if (tr.type !== 'stump' && Math.hypot(tr.x - b.x, tr.z - b.z) < 2.6) igniteTree(tr);
-    for (const o of s.barrels) if (o !== b && !o.dead && Math.hypot(o.x - b.x, o.z - b.z) < BLAST_RADIUS * 0.8) setTimeout(() => { if (!o.dead && state.barrels.includes(o)) explodeBarrel(o); }, 180);
-    for (const c of s.critters) if (!c.hit && Math.hypot(c.x - b.x, c.z - b.z) < BLAST_RADIUS * 0.6 && c.y < 2.5) { c.hit = 0.01; }
+    if (isDark()) for (const tr of s.trees) if (tr.type !== 'stump' && Math.hypot(tr.x - x, tr.z - z) < 2.6) igniteTree(tr);
+    for (const o of s.barrels) if (o !== skipBarrel && !o.dead && Math.hypot(o.x - x, o.z - z) < radius * 0.8) setTimeout(() => { if (!o.dead && state.barrels.includes(o)) explodeBarrel(o); }, 180);
+    for (const c of s.critters) if (!c.hit && Math.hypot(c.x - x, c.z - z) < radius * 0.6 && Math.abs(c.y - y) < 2.5) { c.hit = 0.01; }
+    for (const inc of s.incoming) if (!inc.dead && Math.hypot(inc.x - x, inc.y - y, inc.z - z) < radius) { inc.dead = true; burst(inc.x, inc.y, inc.z, 8, '#ffd37a'); }
+  }
+  function explodeBarrel(b) {
+    b.dead = true;
+    blastAt(b.x, b.r, b.z, BLAST_RADIUS, b);
+  }
+  // an explosive bolt goes off wherever it stops
+  function bombDetonate(a) {
+    if (a.boomed) return; a.boomed = true; a.dead = true;
+    blastAt(a.x, Math.max(0, a.y), a.z, BLAST_RADIUS * 0.9, null);
   }
   const REWARDS = {
     fire:   { label: '+2 fire', color: '#ff8a2a', apply: () => { state.fireAmmo += 2; updateFireBtn(); } },
@@ -1415,7 +1445,9 @@
           floatText(t.x, t.y + t.r + 0.3, t.z, pts >= 10 ? pts + '  Bullseye' : String(pts));
           burst(a.x, a.y, a.z, pts >= 10 ? 14 : 6, pts >= 10 ? '#f0c052' : '#e8dcc2');
           s.stuck.push({ x: a.x, y: a.y, z: t.z - 0.2, t: 0, yaw: 0, inTarget: true, life: 6 });
-          a.dead = true; buzz(pts >= 10 ? [20, 20, 40] : 25); SFX.hit('target', t.x, t.z); break;
+          a.dead = true; buzz(pts >= 10 ? [20, 20, 40] : 25); SFX.hit('target', t.x, t.z);
+          if (a.bomb) blastAt(a.x, a.y, a.z, 1.5, null);
+          break;
         }
       }
     }
@@ -1514,6 +1546,7 @@
     for (const inc of s.incoming) addF(inc.x, inc.z, 0.4);
     if (isCamp()) for (const pr of CAMP_PROPS) if (pr.kind === 'torch' || pr.kind === 'brazier') addF(pr.x, pr.z, pr.kind === 'brazier' ? 0.35 : 0.2);
     if (s.arrowType === 'fire' && s.fireAmmo > 0) fire += 0.12;
+    if (s.arrowType === 'bomb' && s.bombAmmo > 0) fire += 0.08;
     fire = Math.min(1, fire); if (fire > 0.01) { fx /= Math.max(0.001, fire); }
     SFX.setFire(fire, fx, fz);
     // werewolves: only audible inside ~18m, louder as they close
@@ -2805,6 +2838,7 @@
     const ang = Math.atan2(q.sy - p.sy, q.sx - p.sx);
     ctx.save(); ctx.translate(p.sx, p.sy); ctx.rotate(ang);
     if (a.fire) { ctx.fillStyle = 'rgba(255,140,40,.45)'; ctx.beginPath(); ctx.arc(0, 0, Math.max(5, p.s * 0.2), 0, 6.28); ctx.fill(); }
+    if (a.bomb) { ctx.fillStyle = '#1a1416'; ctx.beginPath(); ctx.arc(-len * 0.15, 0, Math.max(3, p.s * 0.12), 0, 6.28); ctx.fill(); ctx.fillStyle = '#ffd37a'; ctx.beginPath(); ctx.arc(-len * 0.15 - Math.max(3, p.s * 0.12), -Math.max(2, p.s * 0.08), Math.max(1.5, p.s * 0.04), 0, 6.28); ctx.fill(); }
     if (a.silver) { ctx.fillStyle = 'rgba(207,230,255,.5)'; ctx.beginPath(); ctx.arc(0, 0, Math.max(4, p.s * 0.15), 0, 6.28); ctx.fill(); }
     ctx.strokeStyle = a.silver ? '#e6f0ff' : '#c9a76a'; ctx.lineWidth = Math.max(1.5, p.s * 0.03);
     ctx.beginPath(); ctx.moveTo(-len, 0); ctx.lineTo(0, 0); ctx.stroke();
@@ -2943,6 +2977,21 @@
       shaft.addColorStop(0, '#6e4a26'); shaft.addColorStop(0.45, '#d4a86a'); shaft.addColorStop(1, '#5e3f20');
       ctx.strokeStyle = shaft; ctx.lineWidth = bw; ctx.lineCap = 'butt';
       ctx.beginPath(); ctx.moveTo(cx, tailY); ctx.lineTo(cx, headY + 4); ctx.stroke();
+      // powder keg behind the head when an explosive bolt is loaded
+      if (s.arrowType === 'bomb' && s.bombAmmo > 0) {
+        const ky = headY + hh * 0.9, kr = bw * 1.6;
+        ctx.fillStyle = '#1a1416'; roundRect(cx - kr, ky - kr * 1.2, kr * 2, kr * 2.4, kr * 0.5); ctx.fill();
+        ctx.strokeStyle = '#4a4a52'; ctx.lineWidth = Math.max(1.5, kr * 0.18);
+        ctx.beginPath(); ctx.moveTo(cx - kr, ky - kr * 0.6); ctx.lineTo(cx + kr, ky - kr * 0.6); ctx.moveTo(cx - kr, ky + kr * 0.6); ctx.lineTo(cx + kr, ky + kr * 0.6); ctx.stroke();
+        // fuse with a spark
+        const fl = Math.sin(performance.now() / 45) * 2;
+        ctx.strokeStyle = '#8a6a3a'; ctx.lineWidth = Math.max(1.5, kr * 0.15);
+        ctx.beginPath(); ctx.moveTo(cx + kr * 0.6, ky - kr * 1.2); ctx.quadraticCurveTo(cx + kr * 1.3, ky - kr * 1.8, cx + kr * 1.1, ky - kr * 2.3); ctx.stroke();
+        ctx.save(); ctx.globalCompositeOperation = 'lighter';
+        const g = ctx.createRadialGradient(cx + kr * 1.1, ky - kr * 2.3, 1, cx + kr * 1.1, ky - kr * 2.3, kr * 0.9 + fl);
+        g.addColorStop(0, 'rgba(255,240,180,.95)'); g.addColorStop(0.5, 'rgba(255,170,60,.5)'); g.addColorStop(1, 'rgba(255,100,20,0)');
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx + kr * 1.1, ky - kr * 2.3, kr * 0.9 + fl, 0, 6.28); ctx.fill(); ctx.restore();
+      }
       // broad quarrel head
       if (s.arrowType === 'fire' && s.fireAmmo > 0) {
         const fl = Math.sin(performance.now() / 60) * 3;
@@ -3055,6 +3104,11 @@
     openMenu();
   });
   document.getElementById('barrelBtn').addEventListener('click', rollBarrel);
+  document.getElementById('bombBtn').addEventListener('click', () => {
+    if (!state.running || state.bombAmmo <= 0) return;
+    state.arrowType = state.arrowType === 'bomb' ? 'normal' : 'bomb';
+    updateFireBtn();
+  });
   document.getElementById('atBtn').addEventListener('click', () => {
     if (!state.running || ride || state.atCooldown > 0) return;
     state.atArmed = !state.atArmed; updateAtBtn();
@@ -3073,6 +3127,10 @@
     el.innerHTML = html;
   }
   function updateFireBtn() {
+    const bb = document.getElementById('bombBtn');
+    document.getElementById('bombCount').textContent = state.bombAmmo;
+    bb.setAttribute('aria-pressed', state.arrowType === 'bomb' ? 'true' : 'false');
+    bb.disabled = state.bombAmmo <= 0;
     document.getElementById('barrelCount').textContent = state.barrelAmmo;
     document.getElementById('barrelBtn').disabled = state.barrelAmmo <= 0;
     document.getElementById('fireCount').textContent = state.fireAmmo;
