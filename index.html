@@ -473,7 +473,7 @@
     s.scenery = s.scenery.filter(o => o.z < 60);
     while (s.scenery.length < 70) spawnScenery(-2 + Math.random() * 2);
     for (const st of s.stuck) move(st);
-    for (const b of s.barrels) if (!b.away) move(b);
+    for (const b of s.barrels) move(b);
     for (const bl of s.blasts) move(bl);
     for (const pt of s.particles) move(pt);
     for (const c of s.critters) move(c);
@@ -1379,7 +1379,7 @@
     for (const b of s.barrels) {
       if (b.away) {
         // rolled from the wall: slows on the rough ground and stops
-        b.z += b.vz * dt; b.vz = Math.max(0, b.vz - 0.9 * dt); b.rot += b.vz / b.r * dt;
+        b.z += b.vz * dt; b.vz = Math.max(0, b.vz - 0.9 * dt); b.rot += (b.vz + (isCaravan() && s.wagon ? s.wagon.speed : 0)) / b.r * dt;
       } else { b.x += b.vx * dt; b.rot += b.vx / b.r * dt; }
     }
     s.barrels = s.barrels.filter(b => !b.dead && Math.abs(b.x) < 18 && b.z < SPAWN_Z + 5);
@@ -1390,7 +1390,7 @@
     }
     for (const st of s.stuck) st.t += dt;
     s.stuck = s.stuck.filter(st => st.t < 4);
-    for (const p of s.particles) { p.t += dt; p.x += p.vx * dt + (p.ember ? Math.sin(p.t * 2 + p.z) * 0.3 * dt : 0); p.y += p.vy * dt; if (!p.flame) p.vy -= 6 * dt; }
+    for (const p of s.particles) { p.t += dt; p.x += p.vx * dt + (p.ember ? Math.sin(p.t * 2 + p.z) * 0.3 * dt : 0); p.y += p.vy * dt; if (!p.flame && !p.dust) p.vy -= 6 * dt; if (p.dust) { p.vy *= (1 - dt * 0.8); p.r += dt * 0.12; } }
     s.particles = s.particles.filter(p => p.t < p.life);
   }
 
@@ -1495,7 +1495,7 @@
     if (!state.running || paused || state.barrelAmmo <= 0) return;
     if (state.barrels.some(b => b.away && b.z < 2.5)) return;   // one at a time at the gate
     state.barrelAmmo--; updateFireBtn();
-    state.barrels.push({ x: 0, z: 0.9, r: BARREL_R, vx: 0, vz: isCaravan() ? 1.5 : 7.5 + Math.random() * 1.5, rot: 0, dead: false, away: true });
+    state.barrels.push({ x: (Math.random() - 0.5) * 0.6, z: 0.9, r: BARREL_R, vx: 0, vz: isCaravan() ? 0.4 : 7.5 + Math.random() * 1.5, rot: 0, dead: false, away: true });
     buzz([15, 30, 15]);
   }
   // ---- Balloon bolts: a hit hoists the enemy; shoot the balloon to drop them ----
@@ -2520,9 +2520,13 @@
     for (const rx of [-1.1, 1.1]) { const q0 = project(rx, 0, 0.5), q1 = project(rx, 0, 55); ctx.beginPath(); ctx.moveTo(q0.sx, q0.sy); ctx.lineTo(q1.sx, q1.sy); ctx.stroke(); }
     const phase = wg ? wg.dist % 3 : 0;
     ctx.strokeStyle = 'rgba(0,0,0,.22)';
-    for (let z = 1 - phase; z < 50; z += 3) { if (z < 0.6) continue; const q = project(0, 0, z); ctx.lineWidth = Math.max(1, q.s * 0.05); ctx.beginPath(); ctx.moveTo(q.sx - 2.4 * q.s, q.sy); ctx.lineTo(q.sx + 2.4 * q.s, q.sy); ctx.stroke(); }
+    for (let z = 1 + phase - 3; z < 50; z += 3) { if (z < 0.6) continue; const q = project(0, 0, z); ctx.lineWidth = Math.max(1, q.s * 0.05); ctx.beginPath(); ctx.moveTo(q.sx - 2.4 * q.s, q.sy); ctx.lineTo(q.sx + 2.4 * q.s, q.sy); ctx.stroke(); }
+    // haze toward the far end of the road
+    const hz = ctx.createLinearGradient(0, b.sy, 0, project(0, 0, 8).sy);
+    hz.addColorStop(0, 'rgba(216,120,74,.35)'); hz.addColorStop(1, 'rgba(216,120,74,0)');
+    ctx.fillStyle = hz; ctx.fillRect(-20, b.sy - 4, W + 40, project(0, 0, 8).sy - b.sy + 4);
     // dust kicked up behind the wheels
-    if (wg && Math.random() < 0.5) state.particles.push({ x: (Math.random() < 0.5 ? -1 : 1) * 1.1, y: 0.1, z: 0.8, vx: (Math.random() - 0.5) * 0.4, vy: 0.3 + Math.random() * 0.5, t: 0, life: 0.8 + Math.random() * 0.6, color: '#6a5a4a', r: 0.12 + Math.random() * 0.1 });
+    if (wg && Math.random() < 0.6) state.particles.push({ x: (Math.random() < 0.5 ? -1 : 1) * (1.0 + Math.random() * 0.3), y: 0.05, z: 1.2, vx: (Math.random() - 0.5) * 0.3, vy: 0.25 + Math.random() * 0.35, t: 0, life: 1.0 + Math.random() * 0.8, color: 'rgba(120,105,90,.35)', r: 0.08 + Math.random() * 0.08, dust: true });
   }
   function drawScenery(o) {
     if (o.kind === 'post') {
