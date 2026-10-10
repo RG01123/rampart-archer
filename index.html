@@ -220,6 +220,7 @@
   const fireBoltsForWave = n => 3 + Math.floor(n / 2);
   const bombBoltsForWave = n => n >= 3 ? 2 : 1;
   const LIFT_H = 7, LIFT_TIME = 15;
+  const BALLOON_UNLIMITED = true;   // testing: set false to restore 2 per wave
   const FOREST_WAVE = 6;        // stage 2 begins at this wave
   const AMBIENT_NEAR = 7;       // meters: fully lit by moonlight closer than this
   const AMBIENT_FAR = 26;       // meters: essentially black beyond this
@@ -503,7 +504,7 @@
     const bomb = state.arrowType === 'bomb' && state.bombAmmo > 0;
     if (bomb) { state.bombAmmo--; if (state.bombAmmo <= 0) state.arrowType = 'normal'; updateFireBtn(); }
     const balloon = state.arrowType === 'balloon' && state.balloonAmmo > 0;
-    if (balloon) { state.balloonAmmo--; if (state.balloonAmmo <= 0) state.arrowType = 'normal'; updateFireBtn(); }
+    if (balloon && !BALLOON_UNLIMITED) { state.balloonAmmo--; if (state.balloonAmmo <= 0) state.arrowType = 'normal'; updateFireBtn(); }
     const silver = state.silver > 0; if (silver) state.silver--;
     const spread = state.volley > 0 ? [-6, 0, 6] : [0]; if (state.volley > 0) state.volley--;
     let center = null;
@@ -3232,7 +3233,7 @@
   });
   document.getElementById('barrelBtn').addEventListener('click', rollBarrel);
   document.getElementById('balloonBtn').addEventListener('click', () => {
-    if (!state.running || state.balloonAmmo <= 0) return;
+    if (!state.running || (!BALLOON_UNLIMITED && state.balloonAmmo <= 0)) return;
     state.arrowType = state.arrowType === 'balloon' ? 'normal' : 'balloon';
     updateFireBtn();
   });
@@ -3260,9 +3261,9 @@
   }
   function updateFireBtn() {
     const lb = document.getElementById('balloonBtn');
-    document.getElementById('balloonCount').textContent = state.balloonAmmo;
+    document.getElementById('balloonCount').textContent = BALLOON_UNLIMITED ? '∞' : state.balloonAmmo;
     lb.setAttribute('aria-pressed', state.arrowType === 'balloon' ? 'true' : 'false');
-    lb.disabled = state.balloonAmmo <= 0;
+    lb.disabled = !BALLOON_UNLIMITED && state.balloonAmmo <= 0;
     const bb = document.getElementById('bombBtn');
     document.getElementById('bombCount').textContent = state.bombAmmo;
     bb.setAttribute('aria-pressed', state.arrowType === 'bomb' ? 'true' : 'false');
