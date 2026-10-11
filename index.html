@@ -1947,7 +1947,7 @@
     if (s.running && s.level !== 3) remainEl.textContent = s.spawnQueue.length + s.enemies.filter(e => !e.dying).length;
     if (s.level === 8 && s.wagon) waveEl.textContent = Math.max(0, Math.round((ROUTE_LEN - s.wagon.dist) / 10) * 10) + ' m';
     const vyaw = viewYaw(), shifted = Math.abs(vyaw) > 1e-4;
-    if (shifted) { ctx.fillStyle = s.level === 3 ? '#8fb0c4' : (s.level === 9 ? gorgeTheme().sky[0] : s.level === 6 ? '#161d2e' : (s.level === 2 ? '#0a1a24' : (s.level === 5 ? '#02040a' : (s.level === 4 ? '#070b14' : '#0d1030')))); ctx.fillRect(-20, -20, W + 40, H + 40); ctx.save(); ctx.translate(-Math.tan(vyaw) * focal() * 0.3, 0); }
+    if (shifted) { ctx.fillStyle = s.level === 3 ? '#8fb0c4' : (s.level === 9 ? gorgeTheme().sky[0] : s.level === 6 ? '#161d2e' : (s.level === 2 ? '#0a1a24' : (s.level === 5 ? '#02040a' : (s.level === 4 ? '#070b14' : '#0d1030')))); ctx.fillRect(-20, -20, W + 40, H + 40); ctx.save(); if (s.level !== 9) ctx.translate(-Math.tan(vyaw) * focal() * 0.3, 0); }
     if (s.level === 3) {
       drawRangeBackdrop(hy);
     } else if (s.level === 9) {
@@ -2016,11 +2016,11 @@
     if (s.level === 7 && s.princess) items.push({ z: s.princess.z, kind: 'princess', o: s.princess });
     if (s.level === 9 && s.gorge) {
       const g = s.gorge;
-      for (const sp of g.spans) { const B = BRIDGES[sp.b]; sp.x = gRel((sp.ax0 + sp.ax1) / 2); sp.y = B.y; if (Math.abs(sp.x) < visHalf(B.z) * 2.2 + SPAN_LEN) items.push({ z: B.z + 0.3, kind: 'span', o: sp }); }
-      for (const d of g.descents) { d.x = gRel(d.ax); d.y = BRIDGES[d.b].y; if (Math.abs(d.x) < 60) items.push({ z: (BRIDGES[d.b].z + BRIDGES[d.b - 1].z) / 2, kind: 'descent', o: d }); }
-      for (const gt of g.gates) { gt.x = gRel(gt.ax); gt.y = BRIDGES[gt.b].y; if (Math.abs(gt.x) < 60) items.push({ z: BRIDGES[gt.b].z - 0.15, kind: 'gate', o: gt }); }
-      for (const c of g.cauldrons) { c.x = gRel(c.ax); c.y = BRIDGES[c.b].y + 2; if (Math.abs(c.x) < 60) items.push({ z: BRIDGES[c.b].z + DECK_D + 0.2, kind: 'cauldron', o: c }); }
-      for (const k of g.kegs) { k.x = gRel(k.ax); k.y = BRIDGES[k.b].y - 1; if (Math.abs(k.x) < 60) items.push({ z: BRIDGES[k.b].z + 0.1, kind: 'kegs', o: k }); }
+      for (const sp of g.spans) { const B = BRIDGES[sp.b]; sp.x = gRel((sp.ax0 + sp.ax1) / 2); sp.y = B.y; if (Math.abs(sp.x) < visHalf(B.z) * 1.5 + SPAN_LEN + yawReach(B.z)) items.push({ z: B.z + 0.3, kind: 'span', o: sp }); }
+      for (const d of g.descents) { d.x = gRel(d.ax); d.y = BRIDGES[d.b].y; if (Math.abs(d.x) < 60 + yawReach(20)) items.push({ z: (BRIDGES[d.b].z + BRIDGES[d.b - 1].z) / 2, kind: 'descent', o: d }); }
+      for (const gt of g.gates) { gt.x = gRel(gt.ax); gt.y = BRIDGES[gt.b].y; if (Math.abs(gt.x) < 60 + yawReach(20)) items.push({ z: BRIDGES[gt.b].z - 0.15, kind: 'gate', o: gt }); }
+      for (const c of g.cauldrons) { c.x = gRel(c.ax); c.y = BRIDGES[c.b].y + 2; if (Math.abs(c.x) < 60 + yawReach(20)) items.push({ z: BRIDGES[c.b].z + DECK_D + 0.2, kind: 'cauldron', o: c }); }
+      for (const k of g.kegs) { k.x = gRel(k.ax); k.y = BRIDGES[k.b].y - 1; if (Math.abs(k.x) < 60 + yawReach(20)) items.push({ z: BRIDGES[k.b].z + 0.1, kind: 'kegs', o: k }); }
       items.push({ z: 10.8, kind: 'mist', o: { z: 10.8, a: 0.1, x: camX, y: 0 } });
       items.push({ z: 16.8, kind: 'mist', o: { z: 16.8, a: 0.09, x: camX, y: 0 } });
       items.push({ z: 24, kind: 'mist', o: { z: 24, a: 0.14, x: camX, y: 0 } });
@@ -2824,12 +2824,16 @@
   }
   // A rock wall running along the far side of the gorge at depth z, from deep below up to a jagged skyline.
   // Drawn in world space so it slides with the view at the right rate for its depth.
+  // how far sideways the view reaches at a depth, allowing for the screen's own width beyond the look angle
+  const yawReach = z => Math.tan(Math.min(1.5, Math.abs(viewYaw()) + 0.55)) * (z + Z0);
+  function relZ(x, z) { const yaw = viewYaw(), c = ride ? ride.cam : { x: camX, z: -Z0 }; return (x - c.x) * Math.sin(yaw) + (z - c.z) * Math.cos(yaw); }
   function drawRockWall(z, base, amp, f1, f2, col, colDeep, seed, pines, pineCol) {
     const g = state.gorge, step = Math.max(1.5, z * 0.1);
-    const half = visHalf(z) * 2.6 + 30, a0 = Math.floor((g.scroll - half) / step) * step, a1 = g.scroll + half;
+    const half = visHalf(z) * 1.3 + 20 + yawReach(z), a0 = Math.floor((g.scroll - half) / step) * step, a1 = g.scroll + half;
     const topY = ax => base + amp * (0.6 * tri(ax * f1 + seed) + 0.4 * tri(ax * f2 + seed * 1.7)) - amp * 0.3;
     const pts = [];
-    for (let ax = a0; ax <= a1; ax += step) pts.push([ax, topY(ax)]);
+    for (let ax = a0; ax <= a1; ax += step) if (relZ(gRel(ax), z) > 2) pts.push([ax, topY(ax)]);
+    if (pts.length < 2) return;
     const first = project(gRel(pts[0][0]), pts[0][1], z), floor = project(0, -24, z);
     const gr = ctx.createLinearGradient(0, project(0, base + amp * 0.7, z).sy, 0, floor.sy);
     gr.addColorStop(0, col); gr.addColorStop(0.4, colDeep); gr.addColorStop(1, 'rgba(0,0,0,0)');
@@ -2838,19 +2842,20 @@
     const last = project(gRel(pts[pts.length - 1][0]), -24, z); ctx.lineTo(last.sx, floor.sy + 40); ctx.closePath(); ctx.fill();
     // facets: dark streaks running down from the notches, pale strata across the face
     ctx.strokeStyle = 'rgba(0,0,0,.3)'; ctx.lineWidth = Math.max(1, first.s * 0.14);
-    for (let i = 1; i < pts.length - 1; i += 2) { const [ax, y] = pts[i]; if (tri(ax * 0.31 + seed) > 0.5) continue; const q0 = project(gRel(ax), y, z), q1 = project(gRel(ax + (tri(ax * 0.13) - 0.5) * 8), y - amp * 1.8, z); ctx.beginPath(); ctx.moveTo(q0.sx, q0.sy); ctx.lineTo(q1.sx, q1.sy); ctx.stroke(); }
+    for (let i = 1; i < pts.length - 1; i += 2) { const [ax, y] = pts[i]; if (tri(ax * 0.31 + seed) > 0.5 || relZ(gRel(ax + 8), z) < 2 || relZ(gRel(ax - 8), z) < 2) continue; const q0 = project(gRel(ax), y, z), q1 = project(gRel(ax + (tri(ax * 0.13) - 0.5) * 8), y - amp * 1.8, z); ctx.beginPath(); ctx.moveTo(q0.sx, q0.sy); ctx.lineTo(q1.sx, q1.sy); ctx.stroke(); }
     ctx.strokeStyle = 'rgba(255,255,255,.045)'; ctx.lineWidth = Math.max(1, first.s * 0.25);
-    for (let k = 0; k < 4; k++) { ctx.beginPath(); let started = false; for (let ax = a0; ax <= a1; ax += step * 2) { const y = topY(ax) - amp * (0.5 + k * 0.45) + tri(ax * 0.09 + k) * amp * 0.3; const q = project(gRel(ax), y, z); if (!started) { ctx.moveTo(q.sx, q.sy); started = true; } else ctx.lineTo(q.sx, q.sy); } ctx.stroke(); }
+    for (let k = 0; k < 4; k++) { ctx.beginPath(); let started = false; for (let ax = pts[0][0]; ax <= pts[pts.length - 1][0]; ax += step * 2) { const y = topY(ax) - amp * (0.5 + k * 0.45) + tri(ax * 0.09 + k) * amp * 0.3; const q = project(gRel(ax), y, z); if (!started) { ctx.moveTo(q.sx, q.sy); started = true; } else ctx.lineTo(q.sx, q.sy); } ctx.stroke(); }
     if (pines) {
       ctx.fillStyle = pineCol; ctx.beginPath();
       const ps = step * 0.6;
-      for (let ax = a0; ax <= a1; ax += ps) { const y = topY(ax), h = (0.5 + tri(ax * 0.41 + seed) * 1.4) * z * 0.045, q = project(gRel(ax), y, z), t = project(gRel(ax + ps * 0.5), y + h, z), r = project(gRel(ax + ps), y, z); ctx.moveTo(q.sx, q.sy + 1); ctx.lineTo(t.sx, t.sy); ctx.lineTo(r.sx, r.sy + 1); ctx.closePath(); }
+      for (let ax = pts[0][0]; ax <= pts[pts.length - 1][0]; ax += ps) { const y = topY(ax), h = (0.5 + tri(ax * 0.41 + seed) * 1.4) * z * 0.045, q = project(gRel(ax), y, z), t = project(gRel(ax + ps * 0.5), y + h, z), r = project(gRel(ax + ps), y, z); ctx.moveTo(q.sx, q.sy + 1); ctx.lineTo(t.sx, t.sy); ctx.lineTo(r.sx, r.sy + 1); ctx.closePath(); }
       ctx.fill();
     }
   }
   // A buttress of rock standing out from the far wall, between the bridges and the wall
   function drawCrag(c, th) {
     const z = c.z, x = gRel(c.ax), hw = c.w / 2, r = srand(c.seed);
+    if (relZ(x - hw - 2, z) < 2 || relZ(x + hw + 2, z) < 2) return;
     const pts = [[-hw - 1.5, -24], [-hw - 0.4, c.h * 0.35], [-hw * 0.6, c.h * 0.8], [-hw * 0.25, c.h * 0.95 + r() * 2], [hw * 0.2, c.h + r() * 1.5], [hw * 0.55, c.h * 0.75], [hw + 0.3, c.h * 0.3], [hw + 1.5, -24]];
     const top = project(x, c.h, z), bot = project(x, -24, z);
     const gr = ctx.createLinearGradient(0, top.sy, 0, bot.sy); gr.addColorStop(0, th.crag[0]); gr.addColorStop(0.6, th.crag[1]); gr.addColorStop(1, 'rgba(0,0,0,0)');
@@ -2869,6 +2874,8 @@
     const sky = ctx.createLinearGradient(0, 0, 0, hy * 1.5);
     sky.addColorStop(0, th.sky[0]); sky.addColorStop(0.55, th.sky[1]); sky.addColorStop(1, th.sky[2]);
     ctx.fillStyle = sky; ctx.fillRect(-20, -20, W + 40, H + 40);
+    const yawShift = -Math.tan(viewYaw()) * focal() * 0.3;
+    ctx.save(); ctx.translate(yawShift, 0);
     if (th.stars > 0) { const r = srand(5.5 + ti); ctx.fillStyle = 'rgba(230,235,250,' + (0.5 * th.stars) + ')'; for (let i = 0; i < 60 * th.stars; i++) ctx.fillRect(r() * W, r() * hy * 0.9, 1.3, 1.3); }
     if (th.sun) {
       const sx = W * th.sun.x - px * 0.3, sy = hy * th.sun.y, sr = W * th.sun.r;
@@ -2883,11 +2890,14 @@
       ctx.fillStyle = mg; ctx.beginPath(); ctx.arc(mx, my, mr * 3.5, 0, 6.28); ctx.fill();
       ctx.fillStyle = '#e8ecf8'; ctx.beginPath(); ctx.arc(mx, my, mr, 0, 6.28); ctx.fill();
     }
+    ctx.restore();
     // the far side of the gorge: a high wall of rock with peaks against the sky, a nearer wall in front of it
     drawRockWall(64, 13, 9, 0.021, 0.057, mix(th.wall[0], th.sky[2], 0.45), mix(th.wall[1], th.sky[2], 0.3), 2.1, true, mix(th.pine, th.sky[2], 0.35));
     // the castle sits on the far wall and grows every section; the burning town is up there too
     const sc = th.castle ? 1.4 : 0.35 + ti * 0.18;
-    drawCastle(W * 0.9 - px * 0.06, project(0, th.castle ? 9 : 12, 38).sy, sc, th.castle ? '#0a0e1c' : mix(th.wall[2], th.sky[2], 0.3), th.castle, undefined);
+    ctx.save(); ctx.translate(yawShift, 0);
+    drawCastle(W * 0.9 - px * 0.06, project(camX + Math.sin(viewYaw()) * 40, th.castle ? 9 : 12, -Z0 + Math.cos(viewYaw()) * 40).sy, sc, th.castle ? '#0a0e1c' : mix(th.wall[2], th.sky[2], 0.3), th.castle, undefined);
+    ctx.restore();
     if (th.town) drawTown(th, t);
     if (th.falls) drawFalls(th, t);
     drawRockWall(38, 9, 5, 0.045, 0.11, th.wall[2], th.wall[3], 7.7, true, th.pine);
@@ -2901,13 +2911,14 @@
     ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = th.river; ctx.globalAlpha = 0.24;
     ctx.beginPath();
     const rp = [];
-    for (let ax = g.scroll - 40; ax <= g.scroll + 40; ax += 2.5) rp.push([gRel(ax), 18 + Math.sin(ax * 0.09) * 4 + Math.sin(ax * 0.023) * 3]);
-    rp.forEach(([x, z], i) => { const q = project(x, -16, z + 0.6); if (i === 0) ctx.moveTo(q.sx, q.sy); else ctx.lineTo(q.sx, q.sy); });
+    const rHalf = 30 + yawReach(22);
+    for (let ax = g.scroll - rHalf; ax <= g.scroll + rHalf; ax += 2.5) { const z = 18 + Math.sin(ax * 0.09) * 4 + Math.sin(ax * 0.023) * 3; if (relZ(gRel(ax), z) > 3) rp.push([gRel(ax), z]); }
+    if (rp.length > 1) rp.forEach(([x, z], i) => { const q = project(x, -16, z + 0.6); if (i === 0) ctx.moveTo(q.sx, q.sy); else ctx.lineTo(q.sx, q.sy); });
     for (let i = rp.length - 1; i >= 0; i--) { const q = project(rp[i][0], -16, rp[i][1] - 0.6); ctx.lineTo(q.sx, q.sy); }
-    ctx.closePath(); ctx.fill(); ctx.restore();
+    if (rp.length > 1) { ctx.closePath(); ctx.fill(); } ctx.restore();
     void rq;
     // buttresses of rock standing out into the gorge between the bridges and the far wall
-    for (const c of g.crags) if (Math.abs(gRel(c.ax)) < visHalf(c.z) * 2.5 + c.w) drawCrag(c, th);
+    for (const c of g.crags) if (Math.abs(gRel(c.ax)) < visHalf(c.z) * 1.3 + c.w + yawReach(c.z)) drawCrag(c, th);
     if (th.birds) {
       ctx.strokeStyle = 'rgba(20,30,34,.8)'; ctx.lineWidth = 1.5;
       for (const bd of g.birds) { const x = bd.x * W, y = hy * (bd.y + Math.sin(bd.t * 1.3) * 0.01), s = W * 0.012 * bd.s, f = Math.sin(bd.t * 6) * 0.5; ctx.beginPath(); ctx.moveTo(x - s, y - f * s * 0.6); ctx.lineTo(x, y); ctx.lineTo(x + s, y - f * s * 0.6); ctx.stroke(); }
@@ -2920,7 +2931,8 @@
     const top = project(0, 16, z).sy, base = project(0, 10, z).sy;
     const fg = ctx.createLinearGradient(0, top, 0, base); fg.addColorStop(0, 'rgba(255,90,30,0)'); fg.addColorStop(1, 'rgba(255,90,30,.2)');
     ctx.fillStyle = fg; ctx.fillRect(-20, top, W + 40, base - top); ctx.restore();
-    for (let ax = Math.floor((g.scroll - 60) / 6) * 6; ax < g.scroll + 60; ax += 6) {
+    for (let ax = Math.floor((g.scroll - 50 - yawReach(z)) / 6) * 6; ax < g.scroll + 50 + yawReach(z); ax += 6) {
+      if (relZ(gRel(ax), z) < 2 || relZ(gRel(ax + 6), z) < 2) continue;
       const h = 2.5 + tri(ax * 0.17) * 3, w = 3 + tri(ax * 0.07) * 2, y0 = 11 + 6 * (0.6 * tri(ax * 0.045 + 7.7) + 0.4 * tri(ax * 0.11 + 13.1)) - 1.8;
       const q0 = project(gRel(ax), y0, z), q1 = project(gRel(ax + w), y0 + h, z), qt = project(gRel(ax + w / 2), y0 + h + w * 0.45, z);
       ctx.fillStyle = '#160808'; ctx.fillRect(q0.sx, q1.sy, q1.sx - q0.sx, q0.sy - q1.sy + 2);
@@ -2932,6 +2944,7 @@
   function drawFalls(th, t) {
     // a waterfall pouring off the far wall into the mist
     const z = 38, ax = SECTION_LEN * 2 + 30, x = gRel(ax);
+    if (relZ(x, z) < 3) return;
     const top = project(x, 13, z), bot = project(x, -14, z), fw = top.s * 2.6;
     const fg = ctx.createLinearGradient(0, top.sy, 0, bot.sy); fg.addColorStop(0, 'rgba(225,238,248,.9)'); fg.addColorStop(0.6, 'rgba(195,220,238,.75)'); fg.addColorStop(1, 'rgba(195,220,238,0)');
     ctx.fillStyle = fg; ctx.beginPath(); ctx.moveTo(top.sx - fw * 0.35, top.sy); ctx.lineTo(top.sx + fw * 0.35, top.sy); ctx.lineTo(bot.sx + fw * 0.7, bot.sy); ctx.lineTo(bot.sx - fw * 0.7, bot.sy); ctx.closePath(); ctx.fill();
@@ -2945,11 +2958,12 @@
     // the ruin of an older, taller aqueduct standing against the far wall
     const g = state.gorge, z = 32;
     for (const [y0, hh, col] of [[7.5, 4.5, th.wall[3]], [3, 4.5, mix(th.wall[3], '#000', 0.25)]]) {
-      const a0 = Math.floor((g.scroll - 50) / 5) * 5;
-      const l = project(gRel(a0), y0 + hh, z), r = project(gRel(a0 + 100), y0, z);
-      ctx.fillStyle = col; ctx.fillRect(l.sx, l.sy, r.sx - l.sx, r.sy - l.sy);
+      const aHalf = 40 + yawReach(z), a0 = Math.floor((g.scroll - aHalf) / 5) * 5;
+      const l = project(gRel(a0), y0 + hh, z), r = project(gRel(a0 + aHalf * 2), y0, z);
+      const l2 = project(gRel(a0), y0, z);
+      if (relZ(gRel(a0), z) > 2 && relZ(gRel(a0 + aHalf * 2), z) > 2) { ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(l.sx, l.sy); ctx.lineTo(r.sx, project(gRel(a0 + aHalf * 2), y0 + hh, z).sy); ctx.lineTo(r.sx, r.sy); ctx.lineTo(l2.sx, l2.sy); ctx.closePath(); ctx.fill(); }
       ctx.fillStyle = th.sky[1];
-      for (let ax = a0; ax < g.scroll + 50; ax += 5) { const b0 = project(gRel(ax + 0.8), y0, z), b1 = project(gRel(ax + 4.2), y0, z), tp = project(gRel(ax + 2.5), y0 + hh * 0.75, z); ctx.beginPath(); ctx.moveTo(b0.sx, b0.sy); ctx.lineTo(b0.sx, tp.sy + (b0.sy - tp.sy) * 0.4); ctx.quadraticCurveTo(tp.sx, tp.sy - (b0.sy - tp.sy) * 0.3, b1.sx, tp.sy + (b0.sy - tp.sy) * 0.4); ctx.lineTo(b1.sx, b1.sy); ctx.closePath(); ctx.fill(); }
+      for (let ax = a0; ax < g.scroll + aHalf; ax += 5) { if (relZ(gRel(ax), z) < 2 || relZ(gRel(ax + 5), z) < 2) continue; const b0 = project(gRel(ax + 0.8), y0, z), b1 = project(gRel(ax + 4.2), y0, z), tp = project(gRel(ax + 2.5), y0 + hh * 0.75, z); ctx.beginPath(); ctx.moveTo(b0.sx, b0.sy); ctx.lineTo(b0.sx, tp.sy + (b0.sy - tp.sy) * 0.4); ctx.quadraticCurveTo(tp.sx, tp.sy - (b0.sy - tp.sy) * 0.3, b1.sx, tp.sy + (b0.sy - tp.sy) * 0.4); ctx.lineTo(b1.sx, b1.sy); ctx.closePath(); ctx.fill(); }
     }
   }
   // The ledge you stand on: a dark crag across the bottom of the view with pines at the edges
