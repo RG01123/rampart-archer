@@ -658,8 +658,9 @@
     const dy = aim.cy - aim.ay;
     const yawRel = Math.max(-1, Math.min(1, (aim.cx - aim.ax) / (W * 0.42))) * MAX_YAW;
     const yaw = camYaw + yawRel;
-    let pitch = PITCH_DEFAULT - (dy / (H * 0.3)) * (32 * Math.PI / 180);
-    pitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, pitch));
+    const pMin = isGorge() ? -54 * Math.PI / 180 : PITCH_MIN, pDef = isGorge() ? -16 * Math.PI / 180 : PITCH_DEFAULT;
+    let pitch = pDef - (dy / (H * 0.3)) * (32 * Math.PI / 180);
+    pitch = Math.max(pMin, Math.min(PITCH_MAX, pitch));
     const v = ARROW_SPEED;
     return {
       pitch, yaw, yawRel,
@@ -2096,6 +2097,7 @@
   // Stone wall across the bottom with crenellations, a lantern and a quiver. Drawn behind the crossbow.
   function drawParapet() {
     if (state.level === 8) { drawTailgate(); return; }
+    if (state.level === 9) { drawLedge(); return; }
     const top = H * 0.80, g = bowG;
     const stone = ctx.createLinearGradient(0, top, 0, H);
     stone.addColorStop(0, '#2a2422'); stone.addColorStop(1, '#120f0e');
@@ -2661,6 +2663,8 @@
     }
     // the last way down comes out right at the castle gate
     for (let b = 1; b < 3; b++) g.descents.push({ b, ax: END - 6, x: 0, y: 0 });
+    g.crags = [];
+    for (let ax = -60; ax < END + 80; ax += 44 + Math.random() * 16) g.crags.push({ ax, z: 26, w: 12 + Math.random() * 9, h: 7.5 + Math.random() * 5, seed: Math.random() * 9 });
     for (let i = 0; i < 7; i++) g.birds.push({ x: Math.random(), y: 0.12 + Math.random() * 0.25, t: Math.random() * 6, s: 0.6 + Math.random() * 0.6 });
     g.scroll = 3.5;
     state.princess = { x: -0.5, z: BRIDGES[0].z, hp: PRINCESS_HP, grabbedBy: null, hit: 0, bob: 0, safe: false, restT: 0, lantern: 0, mounted: true, horse: HORSE_HP, horseHit: 0, rear: 0, waiting: false, gallop: 0 };
@@ -2791,25 +2795,13 @@
 
   // ---- Gorge drawing ----
   const GORGE_THEMES = [
-    { name: 'The gorge mouth', sky: ['#0b1618', '#14323a', '#2a5a55'], sun: { x: 0.5, y: 0.62, r: 0.3, cols: ['#ff5c3a', '#e8432a', '#b02a1e'], glow: 'rgba(240,80,40,.3)' }, ridge: ['#223a3c', '#17292c', '#0f1b1d'], pine: '#0a1416', river: '#d04a32', gorge: ['#132225', '#0a1214'], mist: '70,95,110', lip: 'rgba(255,120,70,.6)', stars: 0, birds: true },
-    { name: 'The aqueduct', sky: ['#1a1024', '#4a2440', '#c8663a'], sun: { x: 0.28, y: 0.84, r: 0.2, cols: ['#ffb060', '#ff7a3a', '#c0402a'], glow: 'rgba(255,140,60,.3)' }, ridge: ['#3c2a46', '#2a1e34', '#1c1426'], pine: '#140e1c', river: '#d08a50', gorge: ['#241a30', '#120c1a'], mist: '110,80,110', lip: 'rgba(255,170,90,.7)', stars: 0, aqueduct: true },
-    { name: 'The falls', sky: ['#0e1a2a', '#22405a', '#7a98ac'], sun: { x: 0.8, y: 0.9, r: 0.14, cols: ['#ffd0a0', '#ff9a60', '#d06040'], glow: 'rgba(255,170,120,.25)' }, ridge: ['#2c4454', '#1e3040', '#14202a'], pine: '#0c141c', river: '#9ac0d8', gorge: ['#1a2c3a', '#0e1822'], mist: '140,170,190', lip: 'rgba(200,225,245,.55)', stars: 0.3, falls: true },
-    { name: 'The burning town', sky: ['#0a0508', '#2c0c10', '#8a2a1a'], sun: null, ridge: ['#2c1212', '#1e0c0c', '#140808'], pine: '#0a0404', river: '#b03a22', gorge: ['#1e0c0c', '#0c0404'], mist: '90,30,20', lip: 'rgba(255,120,60,.7)', stars: 0, town: true, embers: true },
-    { name: 'The castle road', sky: ['#05081a', '#0d1a40', '#223a6a'], sun: null, moon: { x: 0.72, y: 0.2, r: 0.07 }, ridge: ['#16223e', '#0f1830', '#0a1022'], pine: '#060a16', river: '#3a5a8a', gorge: ['#0e1628', '#070b16'], mist: '40,60,110', lip: 'rgba(170,200,255,.5)', stars: 1, castle: true },
+    { name: 'The gorge mouth', sky: ['#0b1618', '#14323a', '#2a5a55'], sun: { x: 0.5, y: 0.5, r: 0.3, cols: ['#ff5c3a', '#e8432a', '#b02a1e'], glow: 'rgba(240,80,40,.3)' }, wall: ['#2a4446', '#15292b', '#1a2e30', '#0b1618'], crag: ['#0d1719', '#040708'], pine: '#0a1416', river: '#d04a32', mist: '28,44,50', lip: 'rgba(255,120,70,.6)', stars: 0, birds: true },
+    { name: 'The aqueduct', sky: ['#1a1024', '#4a2440', '#c8663a'], sun: { x: 0.3, y: 0.66, r: 0.2, cols: ['#ffb060', '#ff7a3a', '#c0402a'], glow: 'rgba(255,140,60,.3)' }, wall: ['#4a3254', '#2a1e34', '#2e2040', '#140c1c'], crag: ['#170f20', '#06030a'], pine: '#140e1c', river: '#d08a50', mist: '50,32,58', lip: 'rgba(255,170,90,.7)', stars: 0, aqueduct: true },
+    { name: 'The falls', sky: ['#0e1a2a', '#22405a', '#7a98ac'], sun: { x: 0.8, y: 0.7, r: 0.14, cols: ['#ffd0a0', '#ff9a60', '#d06040'], glow: 'rgba(255,170,120,.25)' }, wall: ['#3a5468', '#1e3040', '#223848', '#0e1822'], crag: ['#111c26', '#05090e'], pine: '#0c141c', river: '#9ac0d8', mist: '70,92,110', lip: 'rgba(200,225,245,.55)', stars: 0.3, falls: true },
+    { name: 'The burning town', sky: ['#0a0508', '#2c0c10', '#8a2a1a'], sun: null, wall: ['#3a1616', '#1e0c0c', '#240e0e', '#0c0404'], crag: ['#120606', '#040101'], pine: '#0a0404', river: '#b03a22', mist: '52,18,12', lip: 'rgba(255,120,60,.7)', stars: 0, town: true, embers: true },
+    { name: 'The castle road', sky: ['#05081a', '#0d1a40', '#223a6a'], sun: null, moon: { x: 0.72, y: 0.2, r: 0.07 }, wall: ['#1c2c4e', '#0f1830', '#121c36', '#070b16'], crag: ['#080e1c', '#030508'], pine: '#060a16', river: '#3a5a8a', mist: '22,34,66', lip: 'rgba(170,200,255,.5)', stars: 1, castle: true },
   ];
   const tri = v => Math.abs(((v % 2) + 2) % 2 - 1);
-  function gorgeRidge(y0, amp, f1, f2, off, col) {
-    ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(-20, H + 20);
-    for (let x = -20; x <= W + 20; x += 7) { const xa = (x + off) / W; ctx.lineTo(x, y0 - amp * (0.65 * tri(xa * f1) + 0.35 * tri(xa * f2 + 0.7))); }
-    ctx.lineTo(W + 20, H + 20); ctx.closePath(); ctx.fill();
-  }
-  function pineLine(by, step, hh, col, off) {
-    // a row of pines that slides with the view; each tooth's height comes from its index so the row tiles forever
-    ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(-20, by + 40);
-    const i0 = Math.floor((off - 20) / step), x0 = i0 * step - off;
-    for (let i = 0; x0 + (i - i0) * step <= W + 20 + step; i++) { const idx = i0 + i, x = x0 + i * step; const h = hh * (0.5 + 0.8 * tri(idx * 0.37 + by * 0.001)); ctx.lineTo(x, by); ctx.lineTo(x + step * 0.5, by - h); }
-    ctx.lineTo(W + 20, by + 40); ctx.closePath(); ctx.fill();
-  }
   // a castle silhouette: the destination, growing on the horizon section by section
   function drawCastle(cx, base, sc, col, lit, litCol) {
     const t = [[-0.22, 0.42, 0.075], [-0.08, 0.6, 0.09], [0.08, 0.5, 0.08], [0.2, 0.36, 0.065], [0, 0.3, 0.3]];
@@ -2830,19 +2822,60 @@
     ctx.fillStyle = 'rgba(255,170,70,.75)';
     ctx.beginPath(); ctx.moveTo(cx - gw / 2, base + 2); ctx.lineTo(cx - gw / 2, base - gh * 0.6); ctx.arc(cx, base - gh * 0.6, gw / 2, Math.PI, 0); ctx.lineTo(cx + gw / 2, base + 2); ctx.closePath(); ctx.fill();
   }
+  // A rock wall running along the far side of the gorge at depth z, from deep below up to a jagged skyline.
+  // Drawn in world space so it slides with the view at the right rate for its depth.
+  function drawRockWall(z, base, amp, f1, f2, col, colDeep, seed, pines, pineCol) {
+    const g = state.gorge, step = Math.max(1.5, z * 0.1);
+    const half = visHalf(z) * 2.6 + 30, a0 = Math.floor((g.scroll - half) / step) * step, a1 = g.scroll + half;
+    const topY = ax => base + amp * (0.6 * tri(ax * f1 + seed) + 0.4 * tri(ax * f2 + seed * 1.7)) - amp * 0.3;
+    const pts = [];
+    for (let ax = a0; ax <= a1; ax += step) pts.push([ax, topY(ax)]);
+    const first = project(gRel(pts[0][0]), pts[0][1], z), floor = project(0, -24, z);
+    const gr = ctx.createLinearGradient(0, project(0, base + amp * 0.7, z).sy, 0, floor.sy);
+    gr.addColorStop(0, col); gr.addColorStop(0.4, colDeep); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gr; ctx.beginPath(); ctx.moveTo(first.sx, floor.sy + 40);
+    for (const [ax, y] of pts) { const q = project(gRel(ax), y, z); ctx.lineTo(q.sx, q.sy); }
+    const last = project(gRel(pts[pts.length - 1][0]), -24, z); ctx.lineTo(last.sx, floor.sy + 40); ctx.closePath(); ctx.fill();
+    // facets: dark streaks running down from the notches, pale strata across the face
+    ctx.strokeStyle = 'rgba(0,0,0,.3)'; ctx.lineWidth = Math.max(1, first.s * 0.14);
+    for (let i = 1; i < pts.length - 1; i += 2) { const [ax, y] = pts[i]; if (tri(ax * 0.31 + seed) > 0.5) continue; const q0 = project(gRel(ax), y, z), q1 = project(gRel(ax + (tri(ax * 0.13) - 0.5) * 8), y - amp * 1.8, z); ctx.beginPath(); ctx.moveTo(q0.sx, q0.sy); ctx.lineTo(q1.sx, q1.sy); ctx.stroke(); }
+    ctx.strokeStyle = 'rgba(255,255,255,.045)'; ctx.lineWidth = Math.max(1, first.s * 0.25);
+    for (let k = 0; k < 4; k++) { ctx.beginPath(); let started = false; for (let ax = a0; ax <= a1; ax += step * 2) { const y = topY(ax) - amp * (0.5 + k * 0.45) + tri(ax * 0.09 + k) * amp * 0.3; const q = project(gRel(ax), y, z); if (!started) { ctx.moveTo(q.sx, q.sy); started = true; } else ctx.lineTo(q.sx, q.sy); } ctx.stroke(); }
+    if (pines) {
+      ctx.fillStyle = pineCol; ctx.beginPath();
+      const ps = step * 0.6;
+      for (let ax = a0; ax <= a1; ax += ps) { const y = topY(ax), h = (0.5 + tri(ax * 0.41 + seed) * 1.4) * z * 0.045, q = project(gRel(ax), y, z), t = project(gRel(ax + ps * 0.5), y + h, z), r = project(gRel(ax + ps), y, z); ctx.moveTo(q.sx, q.sy + 1); ctx.lineTo(t.sx, t.sy); ctx.lineTo(r.sx, r.sy + 1); ctx.closePath(); }
+      ctx.fill();
+    }
+  }
+  // A buttress of rock standing out from the far wall, between the bridges and the wall
+  function drawCrag(c, th) {
+    const z = c.z, x = gRel(c.ax), hw = c.w / 2, r = srand(c.seed);
+    const pts = [[-hw - 1.5, -24], [-hw - 0.4, c.h * 0.35], [-hw * 0.6, c.h * 0.8], [-hw * 0.25, c.h * 0.95 + r() * 2], [hw * 0.2, c.h + r() * 1.5], [hw * 0.55, c.h * 0.75], [hw + 0.3, c.h * 0.3], [hw + 1.5, -24]];
+    const top = project(x, c.h, z), bot = project(x, -24, z);
+    const gr = ctx.createLinearGradient(0, top.sy, 0, bot.sy); gr.addColorStop(0, th.crag[0]); gr.addColorStop(0.6, th.crag[1]); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gr; ctx.beginPath();
+    pts.forEach(([ox, oy], i) => { const q = project(x + ox, oy, z); if (i === 0) ctx.moveTo(q.sx, q.sy); else ctx.lineTo(q.sx, q.sy); });
+    ctx.closePath(); ctx.fill();
+    // a lit edge on the sun side and a few pines on the shoulders
+    ctx.strokeStyle = th.lip; ctx.lineWidth = Math.max(1, top.s * 0.05); ctx.beginPath();
+    for (let i = 3; i <= 5; i++) { const q = project(x + pts[i][0], pts[i][1], z); if (i === 3) ctx.moveTo(q.sx, q.sy); else ctx.lineTo(q.sx, q.sy); } ctx.stroke();
+    ctx.fillStyle = th.pine;
+    for (let i = 1; i <= 6; i++) { const [ox, oy] = pts[i], h = 1.2 + r() * 2; const q = project(x + ox, oy, z), t = project(x + ox, oy + h, z); ctx.beginPath(); ctx.moveTo(q.sx - q.s * 0.5, q.sy + 1); ctx.lineTo(t.sx, t.sy); ctx.lineTo(q.sx + q.s * 0.5, q.sy + 1); ctx.closePath(); ctx.fill(); }
+  }
   function drawGorgeTheme(hy, th, ti) {
-    const g = state.gorge, px = g.scroll * W * 0.006, t = performance.now() / 1000;
-    const sky = ctx.createLinearGradient(0, 0, 0, hy * 1.1);
-    sky.addColorStop(0, th.sky[0]); sky.addColorStop(0.6, th.sky[1]); sky.addColorStop(1, th.sky[2]);
-    ctx.fillStyle = sky; ctx.fillRect(-20, -20, W + 40, hy * 1.1 + 20);
-    if (th.stars > 0) { const r = srand(5.5 + ti); ctx.fillStyle = 'rgba(230,235,250,' + (0.5 * th.stars) + ')'; for (let i = 0; i < 60 * th.stars; i++) ctx.fillRect(r() * W, r() * hy * 0.7, 1.3, 1.3); }
+    const g = state.gorge, t = performance.now() / 1000, px = g.scroll * W * 0.006;
+    // sky
+    const sky = ctx.createLinearGradient(0, 0, 0, hy * 1.5);
+    sky.addColorStop(0, th.sky[0]); sky.addColorStop(0.55, th.sky[1]); sky.addColorStop(1, th.sky[2]);
+    ctx.fillStyle = sky; ctx.fillRect(-20, -20, W + 40, H + 40);
+    if (th.stars > 0) { const r = srand(5.5 + ti); ctx.fillStyle = 'rgba(230,235,250,' + (0.5 * th.stars) + ')'; for (let i = 0; i < 60 * th.stars; i++) ctx.fillRect(r() * W, r() * hy * 0.9, 1.3, 1.3); }
     if (th.sun) {
       const sx = W * th.sun.x - px * 0.3, sy = hy * th.sun.y, sr = W * th.sun.r;
       const sg = ctx.createRadialGradient(sx, sy, sr * 0.6, sx, sy, sr * 2.2); sg.addColorStop(0, th.sun.glow); sg.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = sg; ctx.fillRect(-20, -20, W + 40, hy * 1.2);
+      ctx.fillStyle = sg; ctx.fillRect(-20, -20, W + 40, hy * 2);
       const sun = ctx.createLinearGradient(0, sy - sr, 0, sy + sr); sun.addColorStop(0, th.sun.cols[0]); sun.addColorStop(0.6, th.sun.cols[1]); sun.addColorStop(1, th.sun.cols[2]);
-      ctx.save(); ctx.beginPath(); ctx.rect(-20, -20, W + 40, hy * 0.95 + 20); ctx.clip();
-      ctx.fillStyle = sun; ctx.beginPath(); ctx.arc(sx, sy, sr, 0, 6.28); ctx.fill(); ctx.restore();
+      ctx.fillStyle = sun; ctx.beginPath(); ctx.arc(sx, sy, sr, 0, 6.28); ctx.fill();
     }
     if (th.moon) {
       const mx = W * th.moon.x - px * 0.2, my = hy * th.moon.y, mr = W * th.moon.r;
@@ -2850,68 +2883,86 @@
       ctx.fillStyle = mg; ctx.beginPath(); ctx.arc(mx, my, mr * 3.5, 0, 6.28); ctx.fill();
       ctx.fillStyle = '#e8ecf8'; ctx.beginPath(); ctx.arc(mx, my, mr, 0, 6.28); ctx.fill();
     }
-    // far crags, three layers, sliding slowly with the view
-    gorgeRidge(hy * 0.92, hy * 0.42, 3.1, 7.3, px * 0.5 + ti * 300, th.ridge[0]);
-    gorgeRidge(hy * 1.0, hy * 0.3, 4.7, 9.1, px * 0.9 + ti * 900, th.ridge[1]);
-    if (th.aqueduct) {
-      // tiers of arches marching across the valley behind the bridges
-      for (const [by, hh, col] of [[hy * 1.02, hy * 0.26, '#3a2c44'], [hy * 1.14, hy * 0.2, '#2c2036']]) {
-        ctx.fillStyle = col; ctx.fillRect(-20, by - hh, W + 40, hh);
-        ctx.fillStyle = th.sky[1]; const aw = W * 0.07, step = W * 0.11;
-        for (let x = -((px * 0.6) % step) - step; x < W + step; x += step) { ctx.beginPath(); ctx.moveTo(x - aw / 2, by); ctx.lineTo(x - aw / 2, by - hh * 0.45); ctx.arc(x, by - hh * 0.45, aw / 2, Math.PI, 0); ctx.lineTo(x + aw / 2, by); ctx.closePath(); ctx.fill(); }
-      }
-    }
-    if (th.falls) {
-      // a tall fall dropping out of the crags, white water and mist
-      const fx = W * 0.6 - px * 0.7, fw = W * 0.11, top = hy * 0.7, bot = hy * 1.9;
-      const fg = ctx.createLinearGradient(0, top, 0, bot); fg.addColorStop(0, 'rgba(220,235,245,.85)'); fg.addColorStop(0.7, 'rgba(190,215,235,.7)'); fg.addColorStop(1, 'rgba(190,215,235,0)');
-      ctx.fillStyle = fg; ctx.beginPath(); ctx.moveTo(fx - fw * 0.35, top); ctx.lineTo(fx + fw * 0.35, top); ctx.lineTo(fx + fw * 0.6, bot); ctx.lineTo(fx - fw * 0.6, bot); ctx.closePath(); ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 1.5;
-      for (let i = 0; i < 6; i++) { const ox = (i / 5 - 0.5) * fw * 0.8, y0 = top + ((t * 120 + i * 97) % (bot - top)); ctx.beginPath(); ctx.moveTo(fx + ox, y0); ctx.lineTo(fx + ox * 1.1, Math.min(bot, y0 + hy * 0.12)); ctx.stroke(); }
-      const mg = ctx.createRadialGradient(fx, bot * 0.92, 2, fx, bot * 0.92, fw * 2.4); mg.addColorStop(0, 'rgba(200,220,235,.5)'); mg.addColorStop(1, 'rgba(200,220,235,0)');
-      ctx.fillStyle = mg; ctx.beginPath(); ctx.ellipse(fx, bot * 0.92, fw * 2.4, fw * 1.2, 0, 0, 6.28); ctx.fill();
-    }
-    if (th.town) {
-      // a ruined town along the far ridge, roofs burning
-      const by = hy * 1.0, r = srand(9.1);
-      ctx.save(); ctx.globalCompositeOperation = 'lighter';
-      const fg = ctx.createLinearGradient(0, by - hy * 0.4, 0, by); fg.addColorStop(0, 'rgba(255,90,30,0)'); fg.addColorStop(1, 'rgba(255,90,30,.22)');
-      ctx.fillStyle = fg; ctx.fillRect(-20, by - hy * 0.4, W + 40, hy * 0.4); ctx.restore();
-      let x = -((px * 0.8) % (W * 0.09)) - W * 0.1;
-      while (x < W + 40) {
-        const w = W * (0.04 + r() * 0.05), h = hy * (0.08 + r() * 0.14);
-        ctx.fillStyle = '#160808'; ctx.fillRect(x, by - h, w, h + 4);
-        ctx.beginPath(); ctx.moveTo(x - 2, by - h); ctx.lineTo(x + w / 2, by - h - w * 0.5); ctx.lineTo(x + w + 2, by - h); ctx.closePath(); ctx.fill();
-        if (r() < 0.6) { ctx.fillStyle = 'rgba(255,160,60,' + (0.5 + Math.sin(t * 7 + x) * 0.3) + ')'; ctx.fillRect(x + w * 0.3, by - h * 0.6, w * 0.15, h * 0.2); }
-        if (r() < 0.5) { ctx.fillStyle = 'rgba(80,50,50,.35)'; for (let i = 0; i < 4; i++) ctx.beginPath(), ctx.ellipse(x + w / 2 + i * w * 0.25 + Math.sin(t * 0.6 + i) * w * 0.2, by - h - w * 0.5 - i * h * 0.35, w * (0.3 + i * 0.12), h * 0.14, 0, 0, 6.28), ctx.fill(); }
-        x += w + W * r() * 0.03;
-      }
-    }
-    // the castle on the right, bigger every section
-    const sc = th.castle ? 1.7 : 0.45 + ti * 0.22;
-    drawCastle(W * 0.9 - px * (th.castle ? 0.25 : 0.12), hy * (th.castle ? 1.26 : 1.02), sc, th.castle ? '#0a0e1c' : th.ridge[1], th.castle, undefined);
-    gorgeRidge(hy * 1.08, hy * 0.22, 6.3, 11.7, px * 1.4 + ti * 1500, th.ridge[2]);
-    pineLine(hy * 1.1, W * 0.045, hy * 0.11, th.pine, px * 1.3);
-    // down into the gorge: haze, the river far below, and the slopes
-    const gg = ctx.createLinearGradient(0, hy * 1.05, 0, H);
-    gg.addColorStop(0, th.gorge[0]); gg.addColorStop(1, th.gorge[1]);
-    ctx.fillStyle = gg; ctx.fillRect(-20, hy * 1.05, W + 40, H - hy * 1.05 + 20);
-    // the river winds in from the horizon and swings out under the near bridge
-    ctx.save(); ctx.globalCompositeOperation = 'lighter';
-    ctx.fillStyle = th.river; ctx.globalAlpha = 0.55;
+    // the far side of the gorge: a high wall of rock with peaks against the sky, a nearer wall in front of it
+    drawRockWall(64, 13, 9, 0.021, 0.057, mix(th.wall[0], th.sky[2], 0.45), mix(th.wall[1], th.sky[2], 0.3), 2.1, true, mix(th.pine, th.sky[2], 0.35));
+    // the castle sits on the far wall and grows every section; the burning town is up there too
+    const sc = th.castle ? 1.4 : 0.35 + ti * 0.18;
+    drawCastle(W * 0.9 - px * 0.06, project(0, th.castle ? 9 : 12, 38).sy, sc, th.castle ? '#0a0e1c' : mix(th.wall[2], th.sky[2], 0.3), th.castle, undefined);
+    if (th.town) drawTown(th, t);
+    if (th.falls) drawFalls(th, t);
+    drawRockWall(38, 9, 5, 0.045, 0.11, th.wall[2], th.wall[3], 7.7, true, th.pine);
+    if (th.aqueduct) drawAqueduct(th);
+    // the drop: mist thickening down toward the river
+    const mq = project(0, -2, 20), rq = project(0, -16, 18);
+    const mg = ctx.createLinearGradient(0, mq.sy, 0, H);
+    mg.addColorStop(0, 'rgba(' + th.mist + ',0)'); mg.addColorStop(0.55, 'rgba(' + th.mist + ',.14)'); mg.addColorStop(1, 'rgba(' + th.mist + ',.3)');
+    ctx.fillStyle = mg; ctx.fillRect(-20, mq.sy, W + 40, H - mq.sy + 20);
+    // the river on the gorge floor, winding along the bottom
+    ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = th.river; ctx.globalAlpha = 0.24;
     ctx.beginPath();
-    const pts = [];
-    for (let i = 0; i <= 10; i++) { const k = i / 10; pts.push([W * (0.5 - k * 0.42 + Math.sin(k * 6 + px * 0.002) * 0.09 * k), hy * 1.08 + (H * 0.82 - hy * 1.08) * k, W * (0.004 + k * k * 0.16)]); }
-    ctx.moveTo(pts[0][0], pts[0][1]);
-    for (const [x, y, w] of pts) ctx.lineTo(x - w / 2, y);
-    for (let i = pts.length - 1; i >= 0; i--) ctx.lineTo(pts[i][0] + pts[i][2] / 2, pts[i][1]);
+    const rp = [];
+    for (let ax = g.scroll - 40; ax <= g.scroll + 40; ax += 2.5) rp.push([gRel(ax), 18 + Math.sin(ax * 0.09) * 4 + Math.sin(ax * 0.023) * 3]);
+    rp.forEach(([x, z], i) => { const q = project(x, -16, z + 0.6); if (i === 0) ctx.moveTo(q.sx, q.sy); else ctx.lineTo(q.sx, q.sy); });
+    for (let i = rp.length - 1; i >= 0; i--) { const q = project(rp[i][0], -16, rp[i][1] - 0.6); ctx.lineTo(q.sx, q.sy); }
     ctx.closePath(); ctx.fill(); ctx.restore();
-    pineLine(hy * 1.46, W * 0.07, hy * 0.2, th.gorge[1], px * 2.6);
-    pineLine(H * 0.76, W * 0.11, hy * 0.26, mix(th.gorge[1], '#000', 0.4), px * 4.5);
+    void rq;
+    // buttresses of rock standing out into the gorge between the bridges and the far wall
+    for (const c of g.crags) if (Math.abs(gRel(c.ax)) < visHalf(c.z) * 2.5 + c.w) drawCrag(c, th);
     if (th.birds) {
       ctx.strokeStyle = 'rgba(20,30,34,.8)'; ctx.lineWidth = 1.5;
       for (const bd of g.birds) { const x = bd.x * W, y = hy * (bd.y + Math.sin(bd.t * 1.3) * 0.01), s = W * 0.012 * bd.s, f = Math.sin(bd.t * 6) * 0.5; ctx.beginPath(); ctx.moveTo(x - s, y - f * s * 0.6); ctx.lineTo(x, y); ctx.lineTo(x + s, y - f * s * 0.6); ctx.stroke(); }
     }
+  }
+  function drawTown(th, t) {
+    // houses along the top of the far wall, windows lit, smoke drifting up
+    const g = state.gorge, z = 38, r = srand(9.1);
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    const top = project(0, 16, z).sy, base = project(0, 10, z).sy;
+    const fg = ctx.createLinearGradient(0, top, 0, base); fg.addColorStop(0, 'rgba(255,90,30,0)'); fg.addColorStop(1, 'rgba(255,90,30,.2)');
+    ctx.fillStyle = fg; ctx.fillRect(-20, top, W + 40, base - top); ctx.restore();
+    for (let ax = Math.floor((g.scroll - 60) / 6) * 6; ax < g.scroll + 60; ax += 6) {
+      const h = 2.5 + tri(ax * 0.17) * 3, w = 3 + tri(ax * 0.07) * 2, y0 = 11 + 6 * (0.6 * tri(ax * 0.045 + 7.7) + 0.4 * tri(ax * 0.11 + 13.1)) - 1.8;
+      const q0 = project(gRel(ax), y0, z), q1 = project(gRel(ax + w), y0 + h, z), qt = project(gRel(ax + w / 2), y0 + h + w * 0.45, z);
+      ctx.fillStyle = '#160808'; ctx.fillRect(q0.sx, q1.sy, q1.sx - q0.sx, q0.sy - q1.sy + 2);
+      ctx.beginPath(); ctx.moveTo(q0.sx - 1, q1.sy); ctx.lineTo(qt.sx, qt.sy); ctx.lineTo(q1.sx + 1, q1.sy); ctx.closePath(); ctx.fill();
+      if (r() < 0.6) { ctx.fillStyle = 'rgba(255,160,60,' + (0.5 + Math.sin(t * 7 + ax) * 0.3) + ')'; ctx.fillRect(q0.sx + (q1.sx - q0.sx) * 0.3, q1.sy + (q0.sy - q1.sy) * 0.35, (q1.sx - q0.sx) * 0.18, (q0.sy - q1.sy) * 0.22); }
+      if (r() < 0.5) { ctx.fillStyle = 'rgba(90,55,50,.35)'; for (let i = 0; i < 4; i++) { const sq = project(gRel(ax + w / 2) + Math.sin(t * 0.6 + i + ax) * 0.8, y0 + h + 1 + i * 1.6, z); ctx.beginPath(); ctx.ellipse(sq.sx, sq.sy, sq.s * (0.9 + i * 0.4), sq.s * 0.4, 0, 0, 6.28); ctx.fill(); } }
+    }
+  }
+  function drawFalls(th, t) {
+    // a waterfall pouring off the far wall into the mist
+    const z = 38, ax = SECTION_LEN * 2 + 30, x = gRel(ax);
+    const top = project(x, 13, z), bot = project(x, -14, z), fw = top.s * 2.6;
+    const fg = ctx.createLinearGradient(0, top.sy, 0, bot.sy); fg.addColorStop(0, 'rgba(225,238,248,.9)'); fg.addColorStop(0.6, 'rgba(195,220,238,.75)'); fg.addColorStop(1, 'rgba(195,220,238,0)');
+    ctx.fillStyle = fg; ctx.beginPath(); ctx.moveTo(top.sx - fw * 0.35, top.sy); ctx.lineTo(top.sx + fw * 0.35, top.sy); ctx.lineTo(bot.sx + fw * 0.7, bot.sy); ctx.lineTo(bot.sx - fw * 0.7, bot.sy); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 1.5;
+    for (let i = 0; i < 7; i++) { const ox = (i / 6 - 0.5) * fw * 0.8, y0 = top.sy + ((t * 160 + i * 131) % (bot.sy - top.sy)); ctx.beginPath(); ctx.moveTo(top.sx + ox, y0); ctx.lineTo(top.sx + ox * 1.15, Math.min(bot.sy, y0 + (bot.sy - top.sy) * 0.12)); ctx.stroke(); }
+    const my = top.sy + (bot.sy - top.sy) * 0.8, mg = ctx.createRadialGradient(top.sx, my, 2, top.sx, my, fw * 2.2); mg.addColorStop(0, 'rgba(205,225,240,.45)'); mg.addColorStop(1, 'rgba(205,225,240,0)');
+    ctx.fillStyle = mg; ctx.beginPath(); ctx.ellipse(top.sx, my, fw * 2.2, fw * 1.1, 0, 0, 6.28); ctx.fill();
+    void th;
+  }
+  function drawAqueduct(th) {
+    // the ruin of an older, taller aqueduct standing against the far wall
+    const g = state.gorge, z = 32;
+    for (const [y0, hh, col] of [[7.5, 4.5, th.wall[3]], [3, 4.5, mix(th.wall[3], '#000', 0.25)]]) {
+      const a0 = Math.floor((g.scroll - 50) / 5) * 5;
+      const l = project(gRel(a0), y0 + hh, z), r = project(gRel(a0 + 100), y0, z);
+      ctx.fillStyle = col; ctx.fillRect(l.sx, l.sy, r.sx - l.sx, r.sy - l.sy);
+      ctx.fillStyle = th.sky[1];
+      for (let ax = a0; ax < g.scroll + 50; ax += 5) { const b0 = project(gRel(ax + 0.8), y0, z), b1 = project(gRel(ax + 4.2), y0, z), tp = project(gRel(ax + 2.5), y0 + hh * 0.75, z); ctx.beginPath(); ctx.moveTo(b0.sx, b0.sy); ctx.lineTo(b0.sx, tp.sy + (b0.sy - tp.sy) * 0.4); ctx.quadraticCurveTo(tp.sx, tp.sy - (b0.sy - tp.sy) * 0.3, b1.sx, tp.sy + (b0.sy - tp.sy) * 0.4); ctx.lineTo(b1.sx, b1.sy); ctx.closePath(); ctx.fill(); }
+    }
+  }
+  // The ledge you stand on: a dark crag across the bottom of the view with pines at the edges
+  function drawLedge() {
+    const top = H * 0.8, th = gorgeTheme();
+    const gr = ctx.createLinearGradient(0, top - H * 0.06, 0, H); gr.addColorStop(0, '#0c0f18'); gr.addColorStop(1, '#05060a');
+    ctx.fillStyle = gr; ctx.beginPath(); ctx.moveTo(-20, H + 20);
+    for (let x = -20; x <= W + 20; x += W * 0.06) ctx.lineTo(x, top - H * 0.05 * (0.6 * tri(x / W * 5.3) + 0.4 * tri(x / W * 11.1 + 0.4)));
+    ctx.lineTo(W + 20, H + 20); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = th.lip; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.5; ctx.beginPath();
+    for (let x = -20; x <= W + 20; x += W * 0.06) { const y = top - H * 0.05 * (0.6 * tri(x / W * 5.3) + 0.4 * tri(x / W * 11.1 + 0.4)); if (x === -20) ctx.moveTo(x, y); else ctx.lineTo(x, y); } ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.fillStyle = '#07090f';
+    for (const [fx, hh] of [[0.04, 0.22], [0.1, 0.16], [0.95, 0.19]]) { const x = W * fx, y = top - H * 0.02, w = W * 0.05; ctx.beginPath(); ctx.moveTo(x - w, y + 10); ctx.lineTo(x - w * 0.5, y - H * hh * 0.45); ctx.lineTo(x - w * 0.25, y - H * hh * 0.5); ctx.lineTo(x, y - H * hh); ctx.lineTo(x + w * 0.25, y - H * hh * 0.5); ctx.lineTo(x + w * 0.5, y - H * hh * 0.45); ctx.lineTo(x + w, y + 10); ctx.closePath(); ctx.fill(); }
   }
   function drawGorgeBackdrop(hy) {
     const g = state.gorge;
@@ -2929,8 +2980,8 @@
     ctx.fillStyle = gr; ctx.fillRect(-20, p.sy, W + 40, H);
   }
   function pierAt(ax, b, col) {
-    const B = BRIDGES[b], x = gRel(ax), top = B.y - 1.7;
-    const a = project(x - 0.5, top, B.z), c = project(x + 0.5, top, B.z), d = project(x - 0.75, top - 8, B.z), e = project(x + 0.75, top - 8, B.z);
+    const B = BRIDGES[b], x = gRel(ax), top = B.y - 2.4;
+    const a = project(x - 0.45, top, B.z), c = project(x + 0.45, top, B.z), d = project(x - 0.7, top - 10, B.z), e = project(x + 0.7, top - 10, B.z);
     const gr = ctx.createLinearGradient(0, a.sy, 0, d.sy); gr.addColorStop(0, col); gr.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = gr; ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(c.sx, c.sy); ctx.lineTo(e.sx, e.sy); ctx.lineTo(d.sx, d.sy); ctx.closePath(); ctx.fill();
   }
@@ -2940,7 +2991,7 @@
     const top = mix('#262c3a', '#3a4254', depth), face = mix('#171c2a', '#262c3e', depth), dark = mix('#0b0e18', '#171c2a', depth);
     const r = srand(sp.seed * 9 + sp.b);
     const quad = (p1, p2, p3, p4, col) => { ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(p1.sx, p1.sy); ctx.lineTo(p2.sx, p2.sy); ctx.lineTo(p3.sx, p3.sy); ctx.lineTo(p4.sx, p4.sy); ctx.closePath(); ctx.fill(); };
-    const ht = 1.7;
+    const ht = 2.4;
     if (sp.down) {
       // broken stubs at each end, a pier under each
       for (const [sx0, sx1] of [[x0, x0 + 1.2], [x1 - 1.2, x1]]) {
@@ -2959,13 +3010,15 @@
     quad(a, a2, b2, b, face);
     quad(a2, project(x0, y + 0.45, z + 0.3), project(x1, y + 0.45, z + 0.3), b2, mix(top, '#fff', 0.1));
     ctx.strokeStyle = th.lip; ctx.lineWidth = Math.max(1.2, a.s * 0.05); ctx.beginPath(); ctx.moveTo(a2.sx, a2.sy); ctx.lineTo(b2.sx, b2.sy); ctx.stroke();
+    ctx.fillStyle = face;
+    for (let mx = x0 + 0.3; mx < x1 - 0.3; mx += 1.25) { const m0 = project(mx, y + 0.45, z), m1 = project(mx + 0.6, y + 0.8, z); ctx.fillRect(m0.sx, m1.sy, m1.sx - m0.sx, m0.sy - m1.sy + 1); }
     // the body of the viaduct under the deck: three open arches you see the gorge through
     const g0 = project(x0, y - ht, z), g1 = project(x1, y - ht, z);
     const gr = ctx.createLinearGradient(0, a.sy, 0, g0.sy); gr.addColorStop(0, face); gr.addColorStop(1, dark);
     ctx.fillStyle = gr; ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.lineTo(g1.sx, g1.sy); ctx.lineTo(g0.sx, g0.sy); ctx.closePath();
     for (let i = 0; i < 3; i++) {
-      const cx = x0 + SPAN_LEN * (i + 0.5) / 3, hw = 1.2;
-      const p1 = project(cx - hw, y - ht - 0.5, z), p2 = project(cx - hw, y - 1.0, z), ap = project(cx, y - 0.45, z), p3 = project(cx + hw, y - 1.0, z), p4 = project(cx + hw, y - ht - 0.5, z);
+      const cx = x0 + SPAN_LEN * (i + 0.5) / 3, hw = 1.25;
+      const p1 = project(cx - hw, y - ht - 0.5, z), p2 = project(cx - hw, y - 1.4, z), ap = project(cx, y - 0.5, z), p3 = project(cx + hw, y - 1.4, z), p4 = project(cx + hw, y - ht - 0.5, z);
       ctx.moveTo(p1.sx, p1.sy); ctx.lineTo(p2.sx, p2.sy); ctx.quadraticCurveTo(ap.sx, ap.sy - (p2.sy - ap.sy) * 0.55, p3.sx, p3.sy); ctx.lineTo(p4.sx, p4.sy); ctx.closePath();
     }
     ctx.fill('evenodd');
@@ -3985,7 +4038,7 @@
     if (s.aim) {
       const v = launchVelocity(s.aim);
       yawN = (v.yawRel !== undefined ? v.yawRel : v.yaw) / MAX_YAW;
-      pitchN = (v.pitch - PITCH_DEFAULT) / (PITCH_MAX - PITCH_MIN);
+      pitchN = (v.pitch - (isGorge() ? -16 * Math.PI / 180 : PITCH_DEFAULT)) / (PITCH_MAX - PITCH_MIN);
     }
     bowYawN += (yawN - bowYawN) * 0.35; bowPitchN += (pitchN - bowPitchN) * 0.35;
     drawBack += ((s.aim ? 1 : 0) - drawBack) * (s.aim ? 0.18 : 0.5);
