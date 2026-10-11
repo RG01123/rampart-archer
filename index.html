@@ -623,7 +623,7 @@
       let ax = gAbs(pr.x) - dir * (visHalf(B.z) + 4 + Math.random() * 6);
       const first = g.spans.find(sp => sp.b === b); ax = Math.max(first.ax0 + 1, Math.min(GORGE_SECTIONS * SECTION_LEN + 12, ax));
       const en = makeEnemy(type, gRel(ax), B.z); en.baseY = B.y; en.b = b; en.runDir = dir; en.biteT = 0;
-      const big = b === 2 ? 1.35 : b === 1 ? 1.18 : 1; en.w *= big; en.h *= big;
+      en.w *= 0.88; en.h *= 0.88;   // perspective does the rest: far bridges are small and hard
       if (ENEMY_TYPES[type].howl) { for (const o of state.enemies) if (!o.dying) o.rally = 4; showBanner('A howl across the gorge', 1400); SFX.howl(en.x, B.z); }
       state.enemies.push(en); return;
     }
@@ -4193,7 +4193,7 @@
     ctx.save(); ctx.globalAlpha = (a.fire || a.silver) ? 1 : Math.min(1, lightAt(a.x, a.y, a.z) * 1.3 + 0.15);
     const q = launchBlend(project(a.x + a.vx * 0.04, a.y + a.vy * 0.04, a.z + a.vz * 0.04), a.life + 0.04, a.tip);
     const launching = a.life < LAUNCH_BLEND, k = launching ? 1 - a.life / LAUNCH_BLEND : 0;
-    const sc = Math.min(p.s, focal() * 0.35);                         // the bolt stops growing right at the lens
+    const sc = Math.min(p.s, focal() * (a.ride ? 0.5 : 0.35));        // the bolt stops growing right at the lens
     const len = Math.max(7, 0.85 * sc), th = Math.max(1.2, sc * 0.028);
     const ang = Math.atan2(q.sy - p.sy, q.sx - p.sx);
     const speed = Math.hypot(q.sx - p.sx, q.sy - p.sy);
@@ -4217,8 +4217,9 @@
     }
     // shaft: dark wood with a lit edge
     ctx.lineCap = 'butt';
-    ctx.strokeStyle = a.silver ? '#9fb4cc' : '#3a2a1a'; ctx.lineWidth = th; ctx.beginPath(); ctx.moveTo(-len, 0); ctx.lineTo(len * 0.02, 0); ctx.stroke();
-    ctx.strokeStyle = a.silver ? '#e6f0ff' : '#c9a76a'; ctx.lineWidth = Math.max(0.8, th * 0.35); ctx.beginPath(); ctx.moveTo(-len, -th * 0.3); ctx.lineTo(0, -th * 0.3); ctx.stroke();
+    ctx.strokeStyle = a.silver ? '#9fb4cc' : '#5a3d22'; ctx.lineWidth = th; ctx.beginPath(); ctx.moveTo(-len, 0); ctx.lineTo(len * 0.02, 0); ctx.stroke();
+    ctx.strokeStyle = a.silver ? '#7f94ac' : '#2e1e10'; ctx.lineWidth = Math.max(0.8, th * 0.35); ctx.beginPath(); ctx.moveTo(-len, th * 0.32); ctx.lineTo(0, th * 0.32); ctx.stroke();
+    ctx.strokeStyle = a.silver ? '#e6f0ff' : '#c9a76a'; ctx.lineWidth = Math.max(0.8, th * 0.3); ctx.beginPath(); ctx.moveTo(-len, -th * 0.32); ctx.lineTo(0, -th * 0.32); ctx.stroke();
     // fletching: two vanes, red over cream
     const fl = len * 0.22, fh = Math.max(1.5, th * 2.2);
     ctx.fillStyle = a.silver ? '#cfe6ff' : '#e8dcc2';
