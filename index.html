@@ -127,6 +127,13 @@
     <div class="buffs" id="buffs"></div>
   </div>
 
+  <div id="gyroAsk" class="screen hidden" style="z-index: 30; pointer-events: auto">
+      <h2>Look around by turning your phone?</h2>
+      <p>The gorge is wider than the screen. With the gyroscope on, turn your phone to follow the pack along the bridges. You can always use the edge arrows or a two-finger drag instead.</p>
+      <button id="gyroYes">Turn gyro on</button>
+      <button id="gyroNo" class="secondary">Not now</button>
+      <p id="gyroAskStatus" class="gyrostatus"></p>
+    </div>
   <div class="screen" id="start">
     <h1>Rampart Archer</h1>
     <p>You hold the wall alone. They come from the dark edge of the field.</p>
@@ -616,6 +623,7 @@
       let ax = gAbs(pr.x) - dir * (visHalf(B.z) + 4 + Math.random() * 6);
       const first = g.spans.find(sp => sp.b === b); ax = Math.max(first.ax0 + 1, Math.min(GORGE_SECTIONS * SECTION_LEN + 12, ax));
       const en = makeEnemy(type, gRel(ax), B.z); en.baseY = B.y; en.b = b; en.runDir = dir; en.biteT = 0;
+      const big = b === 2 ? 1.35 : b === 1 ? 1.18 : 1; en.w *= big; en.h *= big;
       if (ENEMY_TYPES[type].howl) { for (const o of state.enemies) if (!o.dying) o.rally = 4; showBanner('A howl across the gorge', 1400); SFX.howl(en.x, B.z); }
       state.enemies.push(en); return;
     }
@@ -1106,12 +1114,24 @@
     if (gyro.raw != null) { gyro.raw = -gyro.raw; gyro.zero = gyro.raw; }   // keep the current facing as forward
     setGyroStatus(gyro.invert ? 'Gyro direction inverted.' : 'Gyro direction normal.');
   });
-  document.getElementById('gyroBtn').addEventListener('click', async e => {
-    const b = e.currentTarget;
-    if (gyro.on) { gyro.on = false; b.textContent = 'Gyro look: off'; b.setAttribute('aria-pressed', 'false'); setGyroStatus(''); return; }
-    const ok = await enableGyro();
-    gyro.on = ok; b.textContent = ok ? 'Gyro look: on' : 'Gyro look: off'; b.setAttribute('aria-pressed', ok ? 'true' : 'false');
+  function syncGyroBtn() { const b = document.getElementById('gyroBtn'); b.textContent = gyro.on ? 'Gyro look: on' : 'Gyro look: off'; b.setAttribute('aria-pressed', gyro.on ? 'true' : 'false'); }
+  document.getElementById('gyroBtn').addEventListener('click', async () => {
+    if (gyro.on) { gyro.on = false; syncGyroBtn(); setGyroStatus(''); return; }
+    gyro.on = await enableGyro(); syncGyroBtn();
   });
+  // The gorge opens with an offer to turn the gyro on. Asked once per session unless it's declined.
+  const gyroAsk = document.getElementById('gyroAsk');
+  let gyroAsked = false;
+  function offerGyro() {
+    if (gyro.on || gyroAsked || typeof DeviceOrientationEvent === 'undefined') return false;
+    gyroAsked = true; paused = true; gyroAsk.classList.remove('hidden'); document.getElementById('gyroAskStatus').textContent = ''; return true;
+  }
+  document.getElementById('gyroYes').addEventListener('click', async () => {
+    const ok = await enableGyro(); gyro.on = ok; syncGyroBtn();
+    if (!ok) { document.getElementById('gyroAskStatus').textContent = document.getElementById('gyroStatus').textContent; setTimeout(() => { gyroAsk.classList.add('hidden'); paused = false; }, 1400); return; }
+    gyroAsk.classList.add('hidden'); paused = false; showBanner('Turn your phone to look', 1600); setTimeout(() => showBanner('Get her to the castle', 2200), 1800);
+  });
+  document.getElementById('gyroNo').addEventListener('click', () => { gyroAsk.classList.add('hidden'); paused = false; showBanner('Get her to the castle', 2400); });
   let pan = null;        // two-finger look: { id, x0, yaw0 }
   let lastCompass = null;
   canvas.addEventListener('pointerdown', e => {
@@ -3303,13 +3323,17 @@
     const dress = flinch ? '#ffffff' : '#cfe0f5', dressDark = flinch ? '#ffffff' : '#7a93b8', skin = flinch ? '#ffffff' : '#f2d2b8', hair = flinch ? '#ffffff' : '#5a3a1a';
     ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(p.sx, p.sy, L * 0.5, u * 0.18, 0, 0, 6.28); ctx.fill();
     ctx.save(); ctx.translate(p.sx, p.sy);
-    if (pr.rear > 0) { const k = Math.min(1, pr.rear / 0.25); ctx.translate(-L * 0.35, 0); ctx.rotate(-0.6 * k); ctx.translate(L * 0.35, 0); }
+    const rearK = pr.rear > 0 ? Math.min(1, pr.rear / 0.3) : 0;
     const bob = run ? Math.abs(Math.sin(gal)) * H * 0.07 : 0, bodyY = -H * 0.62 - bob;
     const legTh = Math.max(2, u * 0.13);
     // far legs (dark), then near legs
     const legs = [[-L * 0.32, Math.PI, dark, 1], [L * 0.3, Math.PI * 0.6, dark, -1], [-L * 0.26, 0, coat, 1], [L * 0.36, Math.PI * 1.6, coat, -1]];
+    // rearing: the body pitches up around the hindquarters and the forelegs paw the air
+    if (rearK > 0) { ctx.translate(-L * 0.4, 0); ctx.rotate(-0.42 * rearK); ctx.translate(L * 0.4, 0); }
     for (const [lx, ph, col, bend] of legs) {
-      const sw = run ? Math.sin(gal + ph) * L * 0.2 : 0, lift = run ? Math.max(0, Math.cos(gal + ph)) * H * 0.2 : 0;
+      const fore = lx > 0; void fore;
+      let sw = run ? Math.sin(gal + ph) * L * 0.2 : 0, lift = run ? Math.max(0, Math.cos(gal + ph)) * H * 0.2 : 0;
+      if (rearK > 0 && fore) { sw = L * (0.1 + (ph > 2 ? 0.08 : 0)) * rearK; lift = H * (0.42 + Math.sin(performance.now() / 140 + ph) * 0.05) * rearK; }
       const f = limb(lx, bodyY + H * 0.1, lx + sw, -lift, H * 0.34, H * 0.34, bend, legTh, col);
       ctx.fillStyle = '#0e0a08'; ctx.beginPath(); ctx.ellipse(f.x1 + u * 0.03, f.y1, u * 0.09, u * 0.05, 0, 0, 6.28); ctx.fill();
     }
@@ -4414,6 +4438,7 @@
     startScr.classList.add('hidden'); overScr.classList.add('hidden'); hud.style.display = 'block';
     if (level === 3) { enterRange(); remainEl.textContent = state.bolts; return; }
     startWave();
+    if (level === 9 && offerGyro()) { bannerEl.style.opacity = 0; clearTimeout(bannerTimer); }
   }
   function gameOver() {
     endRide();
