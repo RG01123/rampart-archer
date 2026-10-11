@@ -136,7 +136,7 @@
     <button id="citadelBtn" class="secondary">The citadel</button>
     <button id="escortBtn" class="secondary">The escort</button>
     <button id="caravanBtn" class="secondary">The caravan</button>
-    <button id="bridgeBtn" class="secondary">The crossing</button>
+    <button id="bridgeBtn" class="secondary">The gorge</button>
     <button id="startBtn" class="secondary">Hold the wall</button>
     <button id="rangeBtn" class="secondary">Target range</button>
     <button id="howBtn" class="link" type="button" aria-expanded="false">How to play</button>
@@ -151,7 +151,7 @@
       <p>The siege camp is a night raid lit by torches: the pack comes as black shapes with burning eyes. The pause button opens the stage menu at any time.</p>
       <p>The escort: a princess crosses the meadow toward your gate. The dead go for her, not the wall. Kill whoever grabs her and she walks on; keep your own bolts and bombs clear of her. Lose her to the treeline and it's over.</p>
       <p>The caravan: you ride the tailgate of a wagon down a valley road. The pack chases from behind and springs from the roadside; only the fast ones can catch you. Barrels drop off the back into their path. Reach the fort.</p>
-      <p>The crossing: the pack runs along the far bank looking for a ford, then wades across toward you. Lead your shots. Wading is slow, so a fire bolt into a ford pays off; a bomb churns the water and slows them more.</p>
+      <p>The gorge: the princess rides the low bridge toward the castle, five sections of gorge away, and the view follows her. The pack runs the bridges sideways, so lead every shot; wolves on the upper bridges take the stair towers down to hers. Shoot a winch to drop a portcullis, a cauldron to dump burning oil on the span below it, or put fire or a bomb into the powder kegs under a span to drop it into the gorge. Her bridge is the one you mustn't drop. Your bolts, fire and bombs can kill her horse; on foot she is slow and the wolves can drag her off.</p>
       <p>The citadel: archers hold the ledges at different ranges and loose flaming arrows at you. Shoot the arrows out of the air, or the archers themselves. Ledges block your bolts, so find the angle.</p>
       <p>Look around: hold the edge arrows, or drag with two fingers. Tap the compass to face forward again. Aiming follows where you look.</p>
       <p>Sound can be switched off from the pause menu. On iPhone, the ringer switch must be on to hear it.</p>
@@ -174,7 +174,7 @@
       <button class="secondary" data-level="6">The citadel</button>
       <button class="secondary" data-level="7">The escort</button>
       <button class="secondary" data-level="8">The caravan</button>
-      <button class="secondary" data-level="9">The crossing</button>
+      <button class="secondary" data-level="9">The gorge</button>
       <button class="secondary" data-level="1">The field</button>
       <button class="secondary" data-level="3">Target range</button>
     </div>
@@ -240,11 +240,15 @@
   const isCitadel = () => state && state.level === 6;
   const isEscort = () => state && state.level === 7;
   const isCaravan = () => state && state.level === 8;
-  const isCrossing = () => state && state.level === 9;
-  // river bands: the far bank runs along z = RIVER_FAR, fords let them wade to the near bank at RIVER_NEAR
-  const RIVER_NEAR = 6, RIVER_FAR = 16, BANK_X = 14;
-  const FORDS = [-9, -2, 5, 11];
-  const BANK_LANES = [RIVER_FAR + 0.8, RIVER_FAR + 5, RIVER_FAR + 11];
+  const isGorge = () => state && state.level === 9;
+  const hasPrincess = () => state && state.princess && (state.level === 7 || state.level === 9);
+  // The Gorge: three bridges stacked in depth; the view sits high on a tower, so the eye is raised
+  const GORGE_SECTIONS = 5, SECTION_LEN = 70, SPAN_LEN = 10, GORGE_LEAD = 40, GORGE_EYE = 4.4;
+  const BRIDGES = [{ z: 8, y: 0 }, { z: 13.5, y: 2.0 }, { z: 20, y: 4.0 }];
+  const DECK_D = 1.4, BRIDGE_FROM = [1, 2, 3];   // the section each bridge first appears in
+  const HORSE_HP = 3, RIDE_SPEED = 2.6, WALK_SPEED = 1.0, GORGE_LOST = 22;
+  const GORGE_NAMES = ['The gorge mouth', 'The aqueduct', 'The falls', 'The burning town', 'The castle road'];
+  const eyeY = () => EYE_H + (isGorge() ? GORGE_EYE : 0);
   const ROUTE_LEN = 1200, LEGS = 5;   // meters to the fort, in waves
   const PRINCESS_HP = 3, PRINCESS_SPEED = 1.2, DRAG_SPEED = 1.6, LOST_Z = 42;
   // Ledges the archers stand on: x range, height, depth from the wall, thickness
@@ -275,7 +279,9 @@
     ? { near: 3.5, far: 17, min: 0.012, fireMul: 0.6, glow: 0.55, bloom: 0.85, vig: 0.68 }
     : { near: AMBIENT_NEAR, far: AMBIENT_FAR, min: AMBIENT_MIN, fireMul: 1, glow: 1, bloom: state.level === 4 ? 1.0 : 0.9, vig: 0.55 };
 
-  const horizonY = () => ride ? project(ride.cam.x + Math.sin(ride.cam.yaw) * 800, ride.cam.y, ride.cam.z + Math.cos(ride.cam.yaw) * 800).sy : H * 0.36;
+  // the horizon line sits higher on the gorge, where you look down from a tower
+  const HOR = () => H * (isGorge() ? 0.26 : 0.36);
+  const horizonY = () => ride ? project(ride.cam.x + Math.sin(ride.cam.yaw) * 800, ride.cam.y, ride.cam.z + Math.cos(ride.cam.yaw) * 800).sy : HOR();
   const focal = () => W * 0.95;
   let camX = 0, camY = 0;   // small eye offset for parallax, follows the aim
   let ride = null;          // arrow-time state; when set, the camera is free
@@ -285,16 +291,16 @@
   function project(x, y, z) {
     if (!ride && Math.abs(camYaw) < 1e-4) {
       const s = focal() / (z + Z0);
-      return { sx: W / 2 + (x - camX) * s, sy: H * 0.36 + (EYE_H + camY - y) * s, s, behind: z + Z0 < 0.08 };
+      return { sx: W / 2 + (x - camX) * s, sy: HOR() + (eyeY() + camY - y) * s, s, behind: z + Z0 < 0.08 };
     }
-    const c = ride ? ride.cam : { x: camX, y: EYE_H + camY, z: -Z0, yaw: camYaw, pitch: 0 };
+    const c = ride ? ride.cam : { x: camX, y: eyeY() + camY, z: -Z0, yaw: camYaw, pitch: 0 };
     const dx = x - c.x, dy = y - c.y, dz = z - c.z;
     const cy = Math.cos(c.yaw), sy = Math.sin(c.yaw);
     const rx = dx * cy - dz * sy; let rz = dx * sy + dz * cy;
     const cp = Math.cos(c.pitch), sp = Math.sin(c.pitch);
     const ry = dy * cp - rz * sp; rz = dy * sp + rz * cp;
     const s = focal() / Math.max(rz, 0.08);
-    return { sx: W / 2 + rx * s, sy: H * 0.36 - ry * s, s, behind: rz < 0.08 };
+    return { sx: W / 2 + rx * s, sy: HOR() - ry * s, s, behind: rz < 0.08 };
   }
 
   // ---------- Game state ----------
@@ -324,15 +330,15 @@
       aim: null,  // { ax, ay, cx, cy }
       shake: 0,
       level: 1, trees: [], targets: [], bolts: 0, rangeDone: false, incoming: [], wallFlash: 0, princess: null,
-      wagon: null, scenery: [], churn: [],
+      wagon: null, scenery: [], gorge: null,
     };
   }
 
   // ---------- Waves ----------
   function buildWave(n) {
     const q = [];
-    if (isCrossing()) {
-      const scouts = 2 + n * 2, stalkers = 2 + n, alphas = Math.floor(n / 2);
+    if (isGorge()) {
+      const scouts = 3 + n * 2, stalkers = 1 + n, alphas = Math.floor((n - 1) / 2);
       for (let i = 0; i < scouts; i++) q.push('scout');
       for (let i = 0; i < stalkers; i++) q.push('stalker');
       for (let i = 0; i < alphas; i++) q.push('alpha');
@@ -556,6 +562,19 @@
   }
   function startWave() {
     state.wave++;
+    if (isGorge()) {
+      const g = state.gorge, pr = state.princess;
+      // the gatehouse she is waiting at opens; a fresh horse if she lost hers
+      for (const gt of g.gates) if (gt.locked && gt.ax === (state.wave - 1) * SECTION_LEN) { gt.down = false; gt.t = 1.2; }
+      pr.waiting = false;
+      if (!pr.mounted && state.wave > 1) { pr.mounted = true; pr.horse = HORSE_HP; pr.rear = 0; showBanner('A fresh horse', 1400); }
+      if (state.wave > GORGE_SECTIONS) { g.finished = true; state.spawnQueue = []; waveEl.textContent = 'The gate'; showBanner('The castle gate opens', 2000); SFX.ui(); return; }
+      state.spawnQueue = buildWave(state.wave); state.spawnTimer = 2.5;
+      waveEl.textContent = 'Section ' + state.wave + ' / ' + GORGE_SECTIONS;
+      state.fireAmmo += 3; state.bombAmmo += state.wave >= 3 ? 2 : 1; state.balloonAmmo = 2; state.barrelAmmo = 0; updateFireBtn();
+      showBanner(state.wave === 1 ? 'Get her to the castle' : GORGE_NAMES[state.wave - 1], 2400);
+      return;
+    }
     if (state.level === 1 && state.wave === FOREST_WAVE) {
       enterForest();
       waveEl.textContent = 'Wave ' + state.wave;
@@ -591,13 +610,17 @@
   }
   function spawnEnemy(type) {
     if (isCitadel()) return spawnArcher(type);
-    if (isCrossing()) {
-      // enter from one bank edge on a random lane, running along the far bank
-      const dir = Math.random() < 0.5 ? 1 : -1, lane = BANK_LANES[Math.floor(Math.random() * BANK_LANES.length)];
-      const en = makeEnemy(type, -dir * (BANK_X + 2 + Math.random() * 3), lane + (Math.random() - 0.5));
-      en.runDir = dir; en.lane = lane; en.phase = 'bank';
-      // pick a ford ahead of it, favouring one near the middle
-      const ahead = FORDS.filter(f => (f - en.x) * dir > 2); en.ford = ahead.length ? ahead[Math.floor(Math.random() * ahead.length)] : FORDS[dir > 0 ? FORDS.length - 1 : 0];
+    if (isGorge()) {
+      // onto one of the bridges this section has, from behind her (most) or from the castle side
+      const g = state.gorge, pr = state.princess, n = state.wave;
+      const avail = BRIDGES.map((B, i) => i).filter(i => n >= BRIDGE_FROM[i]);
+      const r = Math.random();
+      const b = avail.length === 1 ? 0 : (r < 0.45 ? 0 : (r < 0.75 || avail.length < 3) ? 1 : 2);
+      const B = BRIDGES[b], dir = Math.random() < 0.6 ? 1 : -1;
+      let ax = gAbs(pr.x) - dir * (visHalf(B.z) + 4 + Math.random() * 6);
+      const first = g.spans.find(sp => sp.b === b); ax = Math.max(first.ax0 + 1, Math.min(GORGE_SECTIONS * SECTION_LEN + 12, ax));
+      const en = makeEnemy(type, gRel(ax), B.z); en.baseY = B.y; en.b = b; en.runDir = dir; en.biteT = 0;
+      if (ENEMY_TYPES[type].howl) { for (const o of state.enemies) if (!o.dying) o.rally = 4; showBanner('A howl across the gorge', 1400); SFX.howl(en.x, B.z); }
       state.enemies.push(en); return;
     }
     const t = ENEMY_TYPES[type];
@@ -617,7 +640,7 @@
   function makeEnemy(type, ex, ez) {
     const t = ENEMY_TYPES[type];
     const baseY = 0;
-    const speedMul = (1 + (state.wave - 1) * 0.07) * (isCaravan() ? 2.1 : 1);
+    const speedMul = (1 + (state.wave - 1) * 0.07) * (isCaravan() ? 2.1 : (isGorge() ? 0.72 : 1));
     return ({
       type, hp: t.hp, x: ex, z: ez, baseY,
       speed: t.speed * speedMul * (0.9 + Math.random() * 0.2), w: t.w, h: t.h,
@@ -652,7 +675,7 @@
   }
   function landingPoint(vel) {
     // Solve y(t) = EYE_H - 0.1 + vy t - g t^2 / 2 = 0
-    const y0 = EYE_H - 0.1, o = launchOrigin();
+    const y0 = eyeY() - 0.1, o = launchOrigin();
     const t = (vel.vy + Math.sqrt(vel.vy * vel.vy + 2 * GRAVITY * y0)) / GRAVITY;
     return { x: o.x + vel.vx * t, z: o.z + vel.vz * t, t };
   }
@@ -672,7 +695,7 @@
       const hv = Math.hypot(vel.vx, vel.vz);
       const tip = bowG ? { x: bowG.tip.x, y: bowG.tip.y } : null;
       const o = launchOrigin();
-      const arrow = { x: o.x, y: EYE_H - 0.1, z: o.z, vx: hv * Math.sin(yaw), vy: vel.vy, vz: hv * Math.cos(yaw), life: 0, fire: flaming, bomb, balloon, silver, tip };
+      const arrow = { x: o.x, y: eyeY() - 0.1, z: o.z, vx: hv * Math.sin(yaw), vy: vel.vy, vz: hv * Math.cos(yaw), life: 0, fire: flaming, bomb, balloon, silver, tip };
       state.arrows.push(arrow); if (deg === 0) center = arrow;
     }
     if (center && !ride) {
@@ -1152,10 +1175,10 @@
       }
     } else if (!s.enemies.some(en => !en.dying)) {
       if (isEscort() && s.princess && !s.princess.safe) { /* she still has to reach the gate */ }
+      else if (isGorge() && (s.gorge.finished || !s.princess.waiting)) { /* she rides on to the gatehouse first */ }
       else { s.waveClearTimer += dt; if (s.waveClearTimer > (isCaravan() ? 1.0 : 2.2)) { s.waveClearTimer = 0; startWave(); } }
     }
     if (isCaravan()) { updateCaravan(dt); if (!s.running) return; }
-    if (isCrossing()) { for (const c of s.churn) c.t -= dt; s.churn = s.churn.filter(c => c.t > 0); }
 
     // Enemies
     for (const en of s.enemies) {
@@ -1172,7 +1195,7 @@
         // flames pour off the body
         if (Math.random() < 0.6) flame(en.x + (Math.random() - 0.5) * en.w * 0.6, (en.baseY || 0) + Math.random() * en.h, en.z);
         for (const b of s.barrels) if (!b.dead && Math.abs(b.x - en.x) < 1.0 && Math.abs(b.z - en.z) < 1.0) explodeBarrel(b);
-        if (isEscort() && s.princess && !s.princess.safe && Math.hypot(s.princess.x - en.x, s.princess.z - en.z) < 1.0 && Math.random() < dt * 0.8) hurtPrincess(1, 'Burned');
+        if (hasPrincess() && !s.princess.safe && Math.hypot(s.princess.x - en.x, s.princess.z - en.z) < 1.0 && Math.random() < dt * 0.8) { if (isGorge() && s.princess.mounted) horseDown(true); else hurtPrincess(1, 'Burned'); }
         // spread to neighbours
         for (const o of s.enemies) {
           if (o === en || o.dying || o.burning > 0) continue;
@@ -1216,25 +1239,28 @@
         en.x = Math.max(-9, Math.min(9, en.x));
         continue;
       }
-      if (isCrossing() && en.phase) {
-        const v = en.speed * en.speedMul;
-        if (en.phase === 'bank') {
-          // run along the far bank toward the chosen ford
-          en.x += en.runDir * v * dt; en.z += (en.lane - en.z) * 1.5 * dt + en.veer * 0.2 * dt;
-          if ((en.x - en.ford) * en.runDir >= 0) { en.phase = 'ford'; en.x = en.ford; }
-          if (Math.abs(en.x) > BANK_X + 6) { en.runDir *= -1; const ahead = FORDS.filter(f => (f - en.x) * en.runDir > 2); en.ford = ahead.length ? ahead[Math.floor(Math.random() * ahead.length)] : FORDS[0]; }
-        } else if (en.phase === 'ford') {
-          // wade: slow, straight across, slower still in churned water
-          const churned = s.churn.some(c => Math.abs(c.x - en.x) < 2.2 && c.t > 0);
-          const wade = v * (churned ? 0.22 : 0.42);
-          en.z -= wade * dt; en.x += (en.ford - en.x) * 2 * dt + Math.sin(en.bob * 0.5) * 0.15 * dt;
-          if (en.z <= RIVER_NEAR) { en.phase = 'charge'; }
-        } else {
-          // out of the water and straight at the wall
-          en.z -= v * dt; en.x += (0 - en.x) * 0.5 * dt + en.veer * 0.3 * en.speedMul * dt;
+      if (isGorge() && en.b != null) {
+        const g = s.gorge, pr = s.princess, v = en.speed * en.speedMul;
+        if (en.descend) {
+          // taking the stair down to the next bridge
+          en.descend += dt; const k = Math.min(1, en.descend / 0.8);
+          en.baseY = en.dFrom.y + (en.dTo.y - en.dFrom.y) * k; en.z = en.dFrom.z + (en.dTo.z - en.dFrom.z) * k;
+          if (k >= 1) { en.descend = 0; en.b--; }
+          continue;
         }
-        en.x = Math.max(-BANK_X - 8, Math.min(BANK_X + 8, en.x));
-        en.wading = en.phase === 'ford';
+        if (pr.grabbedBy === en) continue;   // holding her: the drag moves it
+        // on her bridge: straight for her. Higher up: for the nearest way down to her
+        let goal = pr.x, dsc = null;
+        if (en.b > 0) { for (const d of g.descents) if (d.b === en.b) { const dx = Math.abs(gRel(d.ax) - pr.x); if (!dsc || dx < dsc.dx) dsc = { d, dx }; } if (dsc) goal = gRel(dsc.d.ax); }
+        const dir = goal > en.x ? 1 : -1; en.runDir = dir;
+        let nx = en.x + dir * v * dt;
+        for (const gt of g.gates) if (gt.b === en.b && gt.down) { const gx = gRel(gt.ax); if ((en.x - gx) * (nx - gx) <= 0 && Math.abs(nx - gx) < 2) nx = gx - dir * 0.6; }
+        if (!deckOk(en.b, gAbs(nx))) { nx = en.x; en.pauseT = Math.max(en.pauseT, 0.4); }
+        en.x = nx;
+        if (dsc && Math.abs(en.x - gRel(dsc.d.ax)) < 0.45) { en.descend = 0.001; en.dFrom = BRIDGES[en.b]; en.dTo = BRIDGES[en.b - 1]; }
+        for (const o of g.oil) if (o.b === en.b && o.t > 0 && gAbs(en.x) > o.ax0 && gAbs(en.x) < o.ax1) ignite(en);
+        if (g.carcass && g.carcass.burning > 0 && en.b === 0 && Math.abs(en.x - g.carcass.x) < 1.2) ignite(en);
+        continue;
       } else {
       en.z -= en.speed * en.speedMul * dt;
       en.x += en.veer * en.speedMul * dt + (0 - en.x) * (isCaravan() ? 0.5 : 0.03) * dt;   // veer, plus drift toward the gate / the road
@@ -1250,6 +1276,7 @@
     s.enemies = s.enemies.filter(en => !(en.dying > 1.0));
     updateBalloons(dt);
     if (isEscort()) { updatePrincess(dt); if (!s.running) return; }
+    if (isGorge()) { updateGorge(dt); if (!s.running) return; }
 
     // Incoming flaming arrows (citadel)
     for (const inc of s.incoming) {
@@ -1294,11 +1321,42 @@
         if (Math.random() < 0.5) flame(a.x, a.y, a.z, true);
         if (Math.random() < 0.7) s.particles.push({ x: a.x, y: a.y, z: a.z, vx: (Math.random() - 0.5) * 0.3, vy: 0.4 + Math.random() * 0.4, t: 0, life: 0.6 + Math.random() * 0.4, color: '#5a5a62', r: 0.08 + Math.random() * 0.08 });
       }
+      a.py = a.y;
       a.vy -= GRAVITY * dt;
       a.x += a.vx * dt; a.y += a.vy * dt; a.z += a.vz * dt;
+      if (isGorge()) {
+        const g = s.gorge, pr = s.princess;
+        if (a.y < -14) { if (a.bomb) bombDetonate(a); else a.dead = true; continue; }
+        if (a.life < LAUNCH_BLEND) continue;
+        let stop = false;
+        // the horse, then her
+        if (pr && !pr.safe && Math.abs(a.z - pr.z) < 0.9) {
+          if (pr.mounted && Math.abs(a.x - pr.x) < 1.0 && a.y > -0.1 && a.y < 1.25) {
+            if (a.bomb) { bombDetonate(a); continue; }
+            a.dead = true; const head = a.x > pr.x + 0.45 && a.y > 0.8;
+            if (a.fire) horseDown(true); else hurtHorse(head ? HORSE_HP : 1, head ? 'You shot her horse' : 'You hit her horse');
+            continue;
+          }
+          const y0 = pr.mounted ? 1.2 : 0, y1 = pr.mounted ? 2.7 : 1.7;
+          if (Math.abs(a.x - pr.x) < 0.45 && a.y > y0 && a.y < y1) { if (a.bomb) { bombDetonate(a); continue; } a.dead = true; hurtPrincess(1, 'You hit her!'); continue; }
+        }
+        for (const c of g.cauldrons) { if (c.used) continue; const B = BRIDGES[c.b]; if (Math.abs(a.x - gRel(c.ax)) < 0.7 && Math.abs(a.z - (B.z + DECK_D)) < 0.9 && a.y > B.y + 1.7 && a.y < B.y + 3.0) { if (a.bomb) bombDetonate(a); else { a.dead = true; pourCauldron(c); } stop = true; break; } }
+        if (stop) continue;
+        for (const k of g.kegs) { if (k.dead) continue; const B = BRIDGES[k.b]; if (Math.abs(a.x - gRel(k.ax)) < 0.9 && Math.abs(a.z - B.z) < 1.0 && a.y > B.y - 1.6 && a.y < B.y - 0.1) { if (a.bomb) bombDetonate(a); else if (a.fire) { a.dead = true; k.fuse = 1.1; burst(a.x, a.y, a.z, 10, '#ffd37a'); showBanner('Fuse lit', 800); SFX.hit('wood', a.x, a.z); } else { a.dead = true; burst(a.x, a.y, a.z, 5, '#8a6a3a'); SFX.hit('wood', a.x, a.z); } stop = true; break; } }
+        if (stop) continue;
+        for (const gt of g.gates) { if (gt.locked) continue; const B = BRIDGES[gt.b]; if (Math.abs(a.x - gRel(gt.ax)) < 0.6 && Math.abs(a.z - (B.z + 0.5)) < 1.2 && a.y > B.y + 2.5 && a.y < B.y + 3.4) { if (a.bomb) bombDetonate(a); else { a.dead = true; gt.down = !gt.down; gt.t = 1.0; burst(a.x, a.y, a.z, 8, '#c9c9d2'); SFX.hit('intercept', a.x, a.z); showBanner(gt.down ? 'Gate dropped' : 'Gate raised', 800); buzz([15, 20, 30]); } stop = true; break; } }
+        if (stop) continue;
+        // decks are solid: a bolt sticks where it lands
+        for (let b = 0; b < 3; b++) { const B = BRIDGES[b]; if (a.py > B.y && a.y <= B.y && a.z > B.z - 0.4 && a.z < B.z + DECK_D + 0.4 && deckOk(b, gAbs(a.x))) { a.y = B.y; if (a.bomb) bombDetonate(a); else if (a.balloon) groundBalloon(a); else { a.dead = true; s.stuck.push({ x: a.x, y: B.y + 0.02, z: a.z, t: 0, yaw: Math.atan2(a.vx, a.vz), fire: a.fire, inTree: true }); SFX.hit('ground', a.x, a.z); } stop = true; break; } }
+        if (stop) continue;
+        // gatehouse towers are stone
+        for (const gt of g.gates) { if (!gt.locked) continue; const B = BRIDGES[gt.b]; const dx = Math.abs(a.x - gRel(gt.ax)); if (dx < 1.4 && a.z > B.z - 0.4 && a.z < B.z + DECK_D + 0.6 && a.y > B.y && a.y < B.y + 4.2 && !(!gt.down && dx < 0.8 && a.y < B.y + 2.3)) { if (a.bomb) bombDetonate(a); else { a.dead = true; burst(a.x, a.y, a.z, 5, '#6a6e80'); SFX.hit('wood', a.x, a.z); } stop = true; break; } }
+        if (stop) continue;
+      } else {
       if (a.y <= 0 && a.bomb) { bombDetonate(a); continue; }
       if (a.y <= 0 && a.balloon) { groundBalloon(a); continue; }
-      if (a.y <= 0) {
+      }
+      if (a.y <= 0 && !isGorge()) {
         a.dead = true; s.stuck.push({ x: a.x, z: a.z, t: 0, yaw: Math.atan2(a.vx, a.vz), fire: a.fire });
         if (a.fire && isDark()) for (const tr of s.trees) if (tr.type === 'bush' && Math.abs(a.x - tr.x) < tr.w * 0.8 && Math.abs(a.z - tr.z) < 0.9) { igniteTree(tr); break; }
         SFX.hit('ground', a.x, a.z);
@@ -1319,11 +1377,6 @@
           }
         }
         if (blocked) continue;
-      }
-      // The crossing: a bolt into the river splashes; a bomb churns the ford
-      if (isCrossing() && a.life >= LAUNCH_BLEND && a.y <= 0 && a.z > RIVER_NEAR && a.z < RIVER_FAR) {
-        if (a.bomb) { bombDetonate(a); s.churn.push({ x: a.x, t: 9 }); showBanner('Ford churned', 900); continue; }
-        a.dead = true; burst(a.x, 0.1, a.z, 8, '#8fb8d8'); SFX.hit('ground', a.x, a.z); continue;
       }
       // The princess: your own bolt hurts her
       if (isEscort() && s.princess && !s.princess.safe && a.life >= LAUNCH_BLEND) {
@@ -1429,16 +1482,12 @@
     s.barrelTimer -= dt;
     if (s.barrelTimer <= 0) {
       // only roll one through when at least two enemies are in the 3-14m band, and roll it at their depth
-      const band = isCaravan() ? [] : s.enemies.filter(e => !e.dying && e.z > 3 && e.z < 14);
+      const band = (isCaravan() || isGorge()) ? [] : s.enemies.filter(e => !e.dying && e.z > 3 && e.z < 14);
       if (band.length >= 2) { spawnBarrel(band.reduce((a, e) => a + e.z, 0) / band.length); s.barrelTimer = 18 + Math.random() * 14; }
       else s.barrelTimer = 3;
     }
     for (const b of s.barrels) {
-      if (b.away && isCrossing() && b.z > RIVER_NEAR) {
-        // afloat: drifts downstream across the fords
-        b.vx = 1.2; b.x += b.vx * dt; b.rot += b.vx / b.r * dt; b.vz = 0;
-        if (b.x > BANK_X + 4) b.dead = true;
-      } else if (b.away) {
+      if (b.away) {
         // rolled from the wall: slows on the rough ground and stops
         b.z += b.vz * dt; b.vz = Math.max(0, b.vz - 0.9 * dt); b.rot += (b.vz + (isCaravan() && s.wagon ? s.wagon.speed : 0)) / b.r * dt;
       } else { b.x += b.vx * dt; b.rot += b.vx / b.r * dt; }
@@ -1460,9 +1509,19 @@
   // Simulate the shot against the world as it is now. Returns what it would hit, or null.
   function predictShot(vel) {
     const o = launchOrigin();
-    let x = o.x, y = EYE_H - 0.1, z = o.z, vy = vel.vy; const dt = 1 / 90;
-    for (let i = 0; i < 500 && y > 0; i++) {
+    let x = o.x, y = eyeY() - 0.1, z = o.z, vy = vel.vy; const dt = 1 / 90;
+    for (let i = 0; i < 500 && y > (isGorge() ? -14 : 0); i++) {
+      const py = y;
       vy -= GRAVITY * dt; x += vel.vx * dt; y += vy * dt; z += vel.vz * dt;
+      if (isGorge() && i > 10) {
+        const g = state.gorge, pr = state.princess;
+        if (pr && Math.abs(z - pr.z) < 0.9 && Math.abs(x - pr.x) < (pr.mounted ? 1.0 : 0.45) && y > -0.1 && y < (pr.mounted ? 2.7 : 1.7)) return null;
+        for (let b = 0; b < 3; b++) { const B = BRIDGES[b]; if (py > B.y && y <= B.y && z > B.z - 0.4 && z < B.z + DECK_D + 0.4 && deckOk(b, gAbs(x))) return null; }
+        for (const gt of g.gates) if (gt.locked) { const B = BRIDGES[gt.b]; if (Math.abs(x - gRel(gt.ax)) < 1.4 && z > B.z - 0.4 && z < B.z + DECK_D + 0.6 && y > B.y && y < B.y + 4.2) return null; }
+        for (const c of g.cauldrons) if (!c.used) { const B = BRIDGES[c.b]; if (Math.abs(x - gRel(c.ax)) < 0.7 && Math.abs(z - (B.z + DECK_D)) < 0.9 && y > B.y + 1.7 && y < B.y + 3.0) return { kind: 'object', o: { x: gRel(c.ax), y: B.y + 2.3, z: B.z + DECK_D } }; }
+        for (const k of g.kegs) if (!k.dead) { const B = BRIDGES[k.b]; if (Math.abs(x - gRel(k.ax)) < 0.9 && Math.abs(z - B.z) < 1.0 && y > B.y - 1.6 && y < B.y - 0.1) return { kind: 'object', o: { x: gRel(k.ax), y: B.y - 0.9, z: B.z } }; }
+        for (const gt of g.gates) if (!gt.locked) { const B = BRIDGES[gt.b]; if (Math.abs(x - gRel(gt.ax)) < 0.6 && Math.abs(z - (B.z + 0.5)) < 1.2 && y > B.y + 2.5 && y < B.y + 3.4) return { kind: 'object', o: { x: gRel(gt.ax), y: B.y + 2.95, z: B.z } }; }
+      }
       if (state.level === 3) {
         for (const t of state.targets) if (Math.abs(z - t.z) < 0.45 && Math.hypot(x - t.x, y - t.y) < t.r) return { kind: 'target', o: t };
         continue;
@@ -1492,7 +1551,7 @@
   function startRide(a, target) {
     a.ride = true; a.tip = null; a.life = Math.max(a.life, LAUNCH_BLEND);
     ride = { a, target, t: 0, phase: 'fly', hold: 0, holdLen: 0.5, hit: false, yaw0: camYaw,
-      cam: { x: 0, y: EYE_H, z: -Z0, yaw: camYaw, pitch: 0 } };
+      cam: { x: 0, y: eyeY(), z: -Z0, yaw: camYaw, pitch: 0 } };
     hud.classList.add('ride'); buzz([10, 20, 10]); SFX.arrowTimeStart();
   }
   function endRide() {
@@ -1527,7 +1586,7 @@
       // whip out from the wall over the first third of a second, then track tightly
       let k = Math.min(1, ride.t / 0.35); k = k * k * (3 - 2 * k);
       if (ride.t < 0.35) {
-        ride.cam.x = want.x * k; ride.cam.y = EYE_H + (want.y - EYE_H) * k; ride.cam.z = -Z0 + (want.z + Z0) * k;
+        ride.cam.x = want.x * k; ride.cam.y = eyeY() + (want.y - eyeY()) * k; ride.cam.z = -Z0 + (want.z + Z0) * k;
         ride.cam.yaw = ride.yaw0 + (wantYaw - ride.yaw0) * k; ride.cam.pitch = wantPitch * k;
       } else {
         const f = 1 - Math.exp(-real * 16);
@@ -1571,7 +1630,7 @@
   }
   function groundBalloon(a) {
     a.dead = true;
-    state.balloons.push({ x: a.x, y: 1.3, z: a.z, r: 0.9, enemy: null, t: 0, dead: false, bob: Math.random() * 6.28, loose: 0 });
+    state.balloons.push({ x: a.x, y: Math.max(0, a.y) + 1.3, z: a.z, r: 0.9, enemy: null, t: 0, dead: false, bob: Math.random() * 6.28, loose: 0 });
   }
   function popBalloon(b, byFire) {
     if (b.dead) return; b.dead = true;
@@ -1641,8 +1700,15 @@
     for (const c of s.critters) if (!c.hit && Math.hypot(c.x - x, c.z - z) < radius * 0.6 && Math.abs(c.y - y) < 2.5) { c.hit = 0.01; }
     for (const inc of s.incoming) if (!inc.dead && Math.hypot(inc.x - x, inc.y - y, inc.z - z) < radius) { inc.dead = true; burst(inc.x, inc.y, inc.z, 8, '#ffd37a'); }
     for (const b of s.balloons) if (!b.dead && Math.hypot(b.x - x, b.y - y, b.z - z) < radius) popBalloon(b, true);
-    if (isEscort() && s.princess && !s.princess.safe && Math.hypot(s.princess.x - x, s.princess.z - z) < radius) hurtPrincess(2, 'Caught in the blast');
-    if (isCrossing() && z > RIVER_NEAR - 1 && z < RIVER_FAR + 1) s.churn.push({ x, t: 9 });
+    if (hasPrincess() && !s.princess.safe && Math.hypot(s.princess.x - x, s.princess.z - z) < radius) {
+      if (isGorge() && s.princess.mounted) hurtHorse(2, 'Blasted');
+      hurtPrincess(isGorge() && s.princess.mounted ? 1 : 2, 'Caught in the blast');
+    }
+    if (isGorge()) {
+      const g = s.gorge;
+      for (const k of g.kegs) if (!k.dead) { const B = BRIDGES[k.b]; if (Math.hypot(gRel(k.ax) - x, B.y - 0.8 - y, B.z - z) < radius * 0.8) { k.dead = true; setTimeout(() => { if (state.gorge && state.gorge.kegs.includes(k)) blowKegs(k); }, 150); } }
+      for (const c of g.cauldrons) if (!c.used) { const B = BRIDGES[c.b]; if (Math.hypot(gRel(c.ax) - x, B.y + 2.3 - y, B.z + DECK_D - z) < radius * 0.7) pourCauldron(c); }
+    }
   }
   function explodeBarrel(b) {
     b.dead = true;
@@ -1662,7 +1728,7 @@
     const keys = Object.keys(REWARDS);
     const reward = keys[Math.floor(Math.random() * keys.length)];
     const dir = Math.random() < 0.5 ? 1 : -1;
-    if (Math.random() < 0.5) {
+    if (Math.random() < 0.5 || isGorge()) {
       // bat: glides across the upper field
       state.critters.push({ kind: 'bat', reward, x: -16 * dir, baseY: 3.2 + Math.random() * 1.6, y: 3.5, z: 7 + Math.random() * 7, vx: dir * (2.4 + Math.random() * 1.2), t: 0, hit: 0, sndT: 0 });
     } else {
@@ -1880,11 +1946,11 @@
     if (s.running && s.level !== 3) remainEl.textContent = s.spawnQueue.length + s.enemies.filter(e => !e.dying).length;
     if (s.level === 8 && s.wagon) waveEl.textContent = Math.max(0, Math.round((ROUTE_LEN - s.wagon.dist) / 10) * 10) + ' m';
     const vyaw = viewYaw(), shifted = Math.abs(vyaw) > 1e-4;
-    if (shifted) { ctx.fillStyle = s.level === 3 ? '#8fb0c4' : (s.level === 6 ? '#161d2e' : (s.level === 2 ? '#0a1a24' : (s.level === 5 ? '#02040a' : (s.level === 4 ? '#070b14' : '#0d1030')))); ctx.fillRect(-20, -20, W + 40, H + 40); ctx.save(); ctx.translate(-Math.tan(vyaw) * focal() * 0.3, 0); }
+    if (shifted) { ctx.fillStyle = s.level === 3 ? '#8fb0c4' : (s.level === 9 ? gorgeTheme().sky[0] : s.level === 6 ? '#161d2e' : (s.level === 2 ? '#0a1a24' : (s.level === 5 ? '#02040a' : (s.level === 4 ? '#070b14' : '#0d1030')))); ctx.fillRect(-20, -20, W + 40, H + 40); ctx.save(); ctx.translate(-Math.tan(vyaw) * focal() * 0.3, 0); }
     if (s.level === 3) {
       drawRangeBackdrop(hy);
     } else if (s.level === 9) {
-      drawCrossingBackdrop(hy);
+      drawGorgeBackdrop(hy);
     } else if (s.level === 8) {
       drawCaravanBackdrop(hy);
     } else if (s.level === 6) {
@@ -1947,8 +2013,20 @@
     for (const c of s.critters) items.push({ z: c.z, kind: 'critter', o: c });
     for (const b of s.balloons) items.push({ z: b.z, kind: 'balloon', o: b });
     if (s.level === 7 && s.princess) items.push({ z: s.princess.z, kind: 'princess', o: s.princess });
+    if (s.level === 9 && s.gorge) {
+      const g = s.gorge;
+      for (const sp of g.spans) { const B = BRIDGES[sp.b]; sp.x = gRel((sp.ax0 + sp.ax1) / 2); sp.y = B.y; if (Math.abs(sp.x) < visHalf(B.z) * 2.2 + SPAN_LEN) items.push({ z: B.z + 0.3, kind: 'span', o: sp }); }
+      for (const d of g.descents) { d.x = gRel(d.ax); d.y = BRIDGES[d.b].y; if (Math.abs(d.x) < 60) items.push({ z: (BRIDGES[d.b].z + BRIDGES[d.b - 1].z) / 2, kind: 'descent', o: d }); }
+      for (const gt of g.gates) { gt.x = gRel(gt.ax); gt.y = BRIDGES[gt.b].y; if (Math.abs(gt.x) < 60) items.push({ z: BRIDGES[gt.b].z - 0.15, kind: 'gate', o: gt }); }
+      for (const c of g.cauldrons) { c.x = gRel(c.ax); c.y = BRIDGES[c.b].y + 2; if (Math.abs(c.x) < 60) items.push({ z: BRIDGES[c.b].z + DECK_D + 0.2, kind: 'cauldron', o: c }); }
+      for (const k of g.kegs) { k.x = gRel(k.ax); k.y = BRIDGES[k.b].y - 1; if (Math.abs(k.x) < 60) items.push({ z: BRIDGES[k.b].z + 0.1, kind: 'kegs', o: k }); }
+      items.push({ z: 10.8, kind: 'mist', o: { z: 10.8, a: 0.1, x: camX, y: 0 } });
+      items.push({ z: 16.8, kind: 'mist', o: { z: 16.8, a: 0.09, x: camX, y: 0 } });
+      items.push({ z: 24, kind: 'mist', o: { z: 24, a: 0.14, x: camX, y: 0 } });
+      if (g.carcass) items.push({ z: g.carcass.z + 0.05, kind: 'carcass', o: g.carcass });
+      if (s.princess) items.push({ z: s.princess.z, kind: 'rider', o: s.princess });
+    }
     if (s.level === 8) for (const o of s.scenery) items.push({ z: o.z, kind: 'scenery', o });
-    if (s.level === 9) for (const c of s.churn) items.push({ z: (RIVER_NEAR + RIVER_FAR) / 2, kind: 'churn', o: c });
     for (const b of s.barrels) items.push({ z: b.z, kind: 'barrel', o: b });
     for (const bl of s.blasts) items.push({ z: bl.z - 0.01, kind: 'blast', o: bl });
     for (const st of s.stuck) items.push({ z: st.z, kind: 'stuck', o: st });
@@ -1956,7 +2034,7 @@
     items.sort((a, b) => b.z - a.z);
     for (const it of items) {
       if (ride || shifted) {
-        const ox = it.kind === 'fog' ? (ride ? ride.cam.x : camX) : it.o.x, oy = it.kind === 'fog' ? (ride ? ride.cam.y : EYE_H) : (it.o.y || 0);
+        const ox = it.kind === 'fog' ? (ride ? ride.cam.x : camX) : it.o.x, oy = it.kind === 'fog' ? (ride ? ride.cam.y : eyeY()) : (it.o.y || 0);
         const pr = project(ox, oy, it.z);
         if (pr.behind) continue;
         if (ride && (it.kind === 'tree' || it.kind === 'fog' || it.kind === 'prop') && pr.s > focal() * 1.1) continue;   // too close to the lens
@@ -1972,7 +2050,14 @@
       else if (it.kind === 'balloon') drawBalloon(it.o);
       else if (it.kind === 'princess') drawPrincess(it.o);
       else if (it.kind === 'scenery') drawScenery(it.o);
-      else if (it.kind === 'churn') drawChurn(it.o);
+      else if (it.kind === 'span') drawSpan(it.o);
+      else if (it.kind === 'descent') drawDescent(it.o);
+      else if (it.kind === 'gate') drawGate(it.o);
+      else if (it.kind === 'cauldron') drawCauldron(it.o);
+      else if (it.kind === 'kegs') drawKegs(it.o);
+      else if (it.kind === 'mist') drawMist(it.o);
+      else if (it.kind === 'carcass') drawCarcass(it.o);
+      else if (it.kind === 'rider') drawRider(it.o);
       else if (it.kind === 'barrel') drawBarrel(it.o);
       else if (it.kind === 'blast') drawBlast(it.o);
       else if (it.kind === 'arrow') drawArrow(it.o);
@@ -1996,7 +2081,7 @@
         for (let i = 1; i <= n; i++) {
           const t = lp.t * i / (n + 1);
           const o = launchOrigin();
-          const q = launchBlend(project(o.x + vel.vx * t, EYE_H - 0.1 + vel.vy * t - GRAVITY * t * t / 2, o.z + vel.vz * t), t);
+          const q = launchBlend(project(o.x + vel.vx * t, eyeY() - 0.1 + vel.vy * t - GRAVITY * t * t / 2, o.z + vel.vz * t), t);
           ctx.beginPath(); ctx.arc(q.sx, q.sy, 3.2 - 1.2 * i / n, 0, 6.28); ctx.fill();
         }
       }
@@ -2553,53 +2638,501 @@
     ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(p.sx, p.sy, w * 0.5, w * 0.14, 0, 0, 6.28); ctx.fill();
   }
 
-  // ---- The Crossing: a wide river between you and the far bank the pack runs along ----
-  function drawCrossingBackdrop(hy) {
-    const sky = ctx.createLinearGradient(0, 0, 0, hy);
-    sky.addColorStop(0, '#0b1020'); sky.addColorStop(0.6, '#24304e'); sky.addColorStop(1, '#6a4a5a');
-    ctx.fillStyle = sky; ctx.fillRect(-20, -20, W + 40, hy + 20);
-    const r = srand(2.2); ctx.fillStyle = 'rgba(230,235,250,.45)';
-    for (let i = 0; i < 40; i++) ctx.fillRect(r() * W, r() * hy * 0.6, 1.2, 1.2);
-    const mx = W * 0.72, my = hy * 0.28, mr = W * 0.07;
-    const mg = ctx.createRadialGradient(mx, my, mr * 0.3, mx, my, mr * 3); mg.addColorStop(0, 'rgba(220,225,255,.35)'); mg.addColorStop(1, 'rgba(220,225,255,0)');
-    ctx.fillStyle = mg; ctx.beginPath(); ctx.arc(mx, my, mr * 3, 0, 6.28); ctx.fill();
-    ctx.fillStyle = '#e8ecf8'; ctx.beginPath(); ctx.arc(mx, my, mr, 0, 6.28); ctx.fill();
-    // hills and a dark treeline on the far shore
-    ctx.fillStyle = '#1a2038';
-    ctx.beginPath(); ctx.moveTo(-20, hy); ctx.quadraticCurveTo(W * 0.25, hy * 0.7, W * 0.5, hy * 0.82); ctx.quadraticCurveTo(W * 0.78, hy * 0.66, W + 20, hy * 0.84); ctx.lineTo(W + 20, hy); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = '#0d1226';
-    ctx.beginPath(); ctx.moveTo(-20, hy + 1);
-    for (let x = -20; x <= W + 20; x += 12) ctx.lineTo(x, hy - 4 - Math.abs(Math.sin(x * 0.19) * 10 + Math.sin(x * 0.06) * 6));
-    ctx.lineTo(W + 20, hy + 1); ctx.closePath(); ctx.fill();
-    // far bank: the strip they run along, with a few torches so the lanes read
-    const fb0 = project(0, 0, BANK_LANES[2] + 4), fb1 = project(0, 0, RIVER_FAR);
-    const bank = ctx.createLinearGradient(0, fb0.sy, 0, fb1.sy); bank.addColorStop(0, '#2a3040'); bank.addColorStop(1, '#3a3a44');
-    ctx.fillStyle = bank; ctx.fillRect(-20, fb0.sy, W + 40, fb1.sy - fb0.sy);
-    ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.lineWidth = 1;
-    for (const lz of BANK_LANES) { const q = project(0, 0, lz); ctx.beginPath(); ctx.moveTo(0, q.sy + 2); ctx.lineTo(W, q.sy + 2); ctx.stroke(); }
-    for (let i = -3; i <= 3; i++) { const tq = project(i * 5 + 2.5, 1.8, RIVER_FAR + 0.5), tb = project(i * 5 + 2.5, 0, RIVER_FAR + 0.5); ctx.strokeStyle = '#110c0a'; ctx.lineWidth = Math.max(1.5, tq.s * 0.08); ctx.beginPath(); ctx.moveTo(tb.sx, tb.sy); ctx.lineTo(tq.sx, tq.sy); ctx.stroke(); ctx.save(); ctx.globalCompositeOperation = 'lighter'; const g = ctx.createRadialGradient(tq.sx, tq.sy, 1, tq.sx, tq.sy, tq.s * 1.1); g.addColorStop(0, 'rgba(255,180,80,.45)'); g.addColorStop(1, 'rgba(255,110,30,0)'); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(tq.sx, tq.sy, tq.s * 1.1, 0, 6.28); ctx.fill(); ctx.restore(); ctx.fillStyle = '#ff8a2a'; ctx.beginPath(); ctx.ellipse(tq.sx, tq.sy - tq.s * 0.1, tq.s * 0.1, tq.s * 0.2, 0, 0, 6.28); ctx.fill(); }
-    // the river
-    const r0 = project(0, 0, RIVER_FAR), r1 = project(0, 0, RIVER_NEAR);
-    const riv = ctx.createLinearGradient(0, r0.sy, 0, r1.sy); riv.addColorStop(0, '#1a2a44'); riv.addColorStop(1, '#223a58');
-    ctx.fillStyle = riv; ctx.fillRect(-20, r0.sy, W + 40, r1.sy - r0.sy);
-    const t = performance.now() / 1000;
-    ctx.strokeStyle = 'rgba(160,200,240,.14)'; ctx.lineWidth = 1;
-    for (let i = 0; i < 40; i++) { const z = RIVER_NEAR + 0.5 + ((i * 1.7) % (RIVER_FAR - RIVER_NEAR - 1)), x = ((i * 5.3 + t * 1.2) % 40) - 20, q = project(x, 0, z); ctx.beginPath(); ctx.moveTo(q.sx - q.s * 0.6, q.sy); ctx.lineTo(q.sx + q.s * 0.6, q.sy); ctx.stroke(); }
-    // fords: pale shallows across the river
-    for (const fx of FORDS) {
-      const a = project(fx - 1.4, 0, RIVER_FAR), b = project(fx + 1.4, 0, RIVER_FAR), c = project(fx + 1.8, 0, RIVER_NEAR), d = project(fx - 1.8, 0, RIVER_NEAR);
-      ctx.fillStyle = 'rgba(150,170,190,.18)'; ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.lineTo(c.sx, c.sy); ctx.lineTo(d.sx, d.sy); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = 'rgba(110,110,120,.6)';
-      for (let i = 0; i < 6; i++) { const q = project(fx + (Math.sin(i * 2.3 + fx) * 1.2), 0, RIVER_NEAR + 0.8 + i * (RIVER_FAR - RIVER_NEAR - 1.6) / 5); ctx.beginPath(); ctx.ellipse(q.sx, q.sy, q.s * 0.25, q.s * 0.1, 0, 0, 6.28); ctx.fill(); }
+  // ---- The Gorge: a scrolling escort across stacked bridges, section by section, to the castle ----
+  function enterGorge() {
+    state.level = 9;
+    const g = state.gorge = { scroll: 0, spans: [], gates: [], cauldrons: [], kegs: [], descents: [], oil: [], carcass: null, theme: 0, prevTheme: -1, blend: 1, birds: [], finished: false, fail: '' };
+    const END = GORGE_SECTIONS * SECTION_LEN;
+    for (let b = 0; b < 3; b++) {
+      const from = b === 0 ? -GORGE_LEAD : (BRIDGE_FROM[b] - 1) * SECTION_LEN;
+      for (let x = from; x < END + 20; x += SPAN_LEN) g.spans.push({ b, ax0: x, ax1: x + SPAN_LEN, down: false, t: 0, seed: Math.random(), x: 0, y: 0 });
     }
-    // near bank
-    const nb = project(0, 0, RIVER_NEAR);
-    const near = ctx.createLinearGradient(0, nb.sy, 0, H); near.addColorStop(0, '#3a3a44'); near.addColorStop(1, '#1a1a22');
-    ctx.fillStyle = near; ctx.fillRect(-20, nb.sy, W + 40, H - nb.sy + 20);
+    for (let n = 1; n <= GORGE_SECTIONS; n++) {
+      const s0 = (n - 1) * SECTION_LEN;
+      // the gatehouse at the end of the section: locked until the section is cleared
+      g.gates.push({ b: 0, ax: n * SECTION_LEN, down: true, locked: true, final: n === GORGE_SECTIONS, t: 0, x: 0, y: 0 });
+      for (let b = 0; b < 3; b++) {
+        if (n < BRIDGE_FROM[b]) continue;
+        if (b > 0) { g.descents.push({ b, ax: s0 + 16, x: 0, y: 0 }); g.descents.push({ b, ax: s0 + 58, x: 0, y: 0 }); }
+        if (n >= 2) g.cauldrons.push({ b, ax: s0 + 26 + b * 6, used: false, pour: 0, x: 0, y: 0 });
+        if (n >= 2) g.gates.push({ b, ax: s0 + 44 + b * 3, down: false, locked: false, t: 0, x: 0, y: 0 });
+        if (n >= 3) g.kegs.push({ b, ax: s0 + 15 + Math.floor(Math.random() * 3) * SPAN_LEN, fuse: 0, dead: false, x: 0, y: 0 });
+      }
+    }
+    // the last way down comes out right at the castle gate
+    for (let b = 1; b < 3; b++) g.descents.push({ b, ax: END - 6, x: 0, y: 0 });
+    for (let i = 0; i < 7; i++) g.birds.push({ x: Math.random(), y: 0.12 + Math.random() * 0.25, t: Math.random() * 6, s: 0.6 + Math.random() * 0.6 });
+    g.scroll = 3.5;
+    state.princess = { x: -0.5, z: BRIDGES[0].z, hp: PRINCESS_HP, grabbedBy: null, hit: 0, bob: 0, safe: false, restT: 0, lantern: 0, mounted: true, horse: HORSE_HP, horseHit: 0, rear: 0, waiting: false, gallop: 0 };
   }
-  function drawChurn(c) {
-    const k = Math.min(1, c.t / 9);
-    for (let i = 0; i < 5; i++) { const q = project(c.x + (Math.sin(i * 1.9 + c.t * 3) * 1.6), 0, RIVER_NEAR + 1 + i * 1.8); ctx.fillStyle = 'rgba(220,235,250,' + (0.25 * k) + ')'; ctx.beginPath(); ctx.ellipse(q.sx, q.sy, q.s * (0.5 + Math.sin(c.t * 5 + i) * 0.15), q.s * 0.18, 0, 0, 6.28); ctx.fill(); }
+  const gAbs = x => x + state.gorge.scroll;
+  const gRel = ax => ax - state.gorge.scroll;
+  const visHalf = z => (W / 2) * (z + Z0) / focal();
+  function spanAt(b, ax) { return state.gorge.spans.find(sp => sp.b === b && ax >= sp.ax0 && ax < sp.ax1); }
+  function deckOk(b, ax) { const sp = spanAt(b, ax); return !!sp && !sp.down; }
+  const gorgeTheme = () => GORGE_THEMES[state.gorge ? state.gorge.theme : 0];
+  // everything that lives in the world slides as the view follows her
+  function shiftWorld(dx) {
+    const s = state;
+    for (const L of [s.enemies, s.arrows, s.stuck, s.particles, s.balloons, s.barrels, s.blasts, s.critters]) for (const o of L) o.x += dx;
+    if (s.princess) s.princess.x += dx;
+    if (s.gorge.carcass) s.gorge.carcass.x += dx;
+  }
+  function hurtHorse(n, why) {
+    const pr = state.princess; if (!pr || !pr.mounted) return;
+    pr.horse -= n; pr.horseHit = 0.3; state.shake = Math.max(state.shake, 0.6); buzz([40, 30, 40]);
+    burst(pr.x, 0.9, pr.z, 10, '#b0291f'); floatText(pr.x, 1.8, pr.z, why || 'Hurt');
+    SFX.hit('wolf', pr.x, pr.z, false);
+    if (pr.horse <= 0) horseDown(false);
+  }
+  function horseDown(burning) {
+    const pr = state.princess, g = state.gorge; if (!pr.mounted) return;
+    pr.mounted = false; pr.horse = 0; pr.rear = 0;
+    g.carcass = { x: pr.x - 0.4, z: pr.z, burning: burning ? TREE_BURN * 0.8 : 0, t: 0 };
+    pr.x += 1.0; pr.hit = 0.3; state.shake = 1; buzz([60, 40, 80]);
+    showBanner(burning ? 'The horse is burning' : 'The horse is down', 1600); SFX.hit('wolf', pr.x, pr.z, true);
+  }
+  function pourCauldron(c) {
+    if (c.used) return; c.used = true; c.pour = 1.2;
+    const B = BRIDGES[c.b], sp = spanAt(c.b, c.ax);
+    state.gorge.oil.push({ b: c.b, ax0: sp ? sp.ax0 : c.ax - 5, ax1: sp ? sp.ax1 : c.ax + 5, t: 7 });
+    burst(gRel(c.ax), B.y + 2.4, B.z + DECK_D, 20, '#ffb347'); SFX.hit('wood', gRel(c.ax), B.z); showBanner('Oil!', 900); buzz([20, 30, 50]);
+  }
+  function blowKegs(k) {
+    k.dead = true;
+    const B = BRIDGES[k.b];
+    blastAt(gRel(k.ax), B.y - 0.8, B.z + 0.5, BLAST_RADIUS, null);
+    const sp = spanAt(k.b, k.ax); if (sp) collapseSpan(sp, 'Blown apart');
+  }
+  function collapseSpan(sp, why) {
+    if (sp.down) return; sp.down = true; sp.t = 0;
+    const s = state, g = s.gorge, B = BRIDGES[sp.b], cx = gRel((sp.ax0 + sp.ax1) / 2);
+    s.shake = Math.max(s.shake, 1.3); buzz([60, 40, 120]); SFX.explosion(cx, B.z);
+    for (let i = 0; i < 36; i++) s.particles.push({ x: gRel(sp.ax0 + Math.random() * SPAN_LEN), y: B.y - Math.random() * 2.5, z: B.z + Math.random() * DECK_D, vx: (Math.random() - 0.5) * 2, vy: -0.5 - Math.random() * 3, t: 0, life: 1.8 + Math.random(), color: Math.random() < 0.5 ? '#3a3f52' : '#232838', r: 0.14 + Math.random() * 0.25 });
+    let fell = 0;
+    for (const en of s.enemies) if (!en.dying && en.b === sp.b && !en.lifted && !en.descend) { const ax = gAbs(en.x); if (ax >= sp.ax0 && ax < sp.ax1) { en.plunge = true; killEnemy(en, false); fell++; } }
+    if (fell) { const bonus = fell * 25; s.score += bonus; scoreEl.textContent = s.score; floatText(cx, B.y + 1.5, B.z, fell + ' fell  +' + bonus); }
+    g.kegs = g.kegs.filter(k => !(k.b === sp.b && k.ax >= sp.ax0 && k.ax < sp.ax1));
+    g.cauldrons = g.cauldrons.filter(c => !(c.b === sp.b && c.ax >= sp.ax0 && c.ax < sp.ax1));
+    g.gates = g.gates.filter(gt => gt.locked || !(gt.b === sp.b && gt.ax >= sp.ax0 && gt.ax < sp.ax1));
+    g.oil = g.oil.filter(o => !(o.b === sp.b && o.ax0 === sp.ax0));
+    showBanner(why || 'The span is gone', 1200);
+    // her bridge: if she hasn't crossed it yet there is no road left
+    if (sp.b === 0 && s.princess) { const pax = gAbs(s.princess.x); if (pax < sp.ax1 + 0.5) { g.fail = pax >= sp.ax0 - 0.5 ? 'She fell with the span' : 'You blew her road'; s.princess.hp = 0; gameOver(); } }
+  }
+  function updateGorge(dt) {
+    const s = state, g = s.gorge, pr = s.princess, B0 = BRIDGES[0];
+    pr.lantern += dt; if (pr.hit > 0) pr.hit -= dt; if (pr.horseHit > 0) pr.horseHit -= dt; if (pr.rear > 0) pr.rear -= dt;
+    // structures
+    for (const gt of g.gates) if (gt.t > 0) gt.t -= dt;
+    for (const c of g.cauldrons) if (c.pour > 0) { c.pour -= dt; const B = BRIDGES[c.b]; for (let i = 0; i < 2; i++) flame(gRel(c.ax) + (Math.random() - 0.5) * 0.4, B.y + 0.2 + Math.random() * 2.2, B.z + DECK_D * 0.6, true); }
+    for (const k of g.kegs) if (k.fuse > 0 && !k.dead) { k.fuse -= dt; const B = BRIDGES[k.b]; if (Math.random() < 0.8) flame(gRel(k.ax) + (Math.random() - 0.5) * 0.6, B.y - 0.5, B.z, true); if (k.fuse <= 0) blowKegs(k); }
+    for (const o of g.oil) { o.t -= dt; const B = BRIDGES[o.b]; for (let i = 0; i < 3; i++) if (Math.random() < 0.7) flame(gRel(o.ax0 + Math.random() * (o.ax1 - o.ax0)), B.y + Math.random() * 0.5, B.z + 0.1 + Math.random() * (DECK_D - 0.2), true); }
+    g.oil = g.oil.filter(o => o.t > 0);
+    for (const sp of g.spans) if (sp.down) sp.t += dt;
+    if (g.carcass && g.carcass.burning > 0) { g.carcass.burning -= dt; for (let i = 0; i < 2; i++) flame(g.carcass.x + (Math.random() - 0.5) * 1.6, 0.2 + Math.random() * 0.6, g.carcass.z + Math.random() * 0.6); }
+    // burning oil and the burning horse hurt her
+    if (!pr.safe) {
+      const pax = gAbs(pr.x);
+      for (const o of g.oil) if (o.b === 0 && pax > o.ax0 && pax < o.ax1) { if (pr.mounted) { horseDown(true); hurtPrincess(1, 'Thrown'); } else if (Math.random() < dt * 0.9) hurtPrincess(1, 'Burned'); }
+      if (g.carcass && g.carcass.burning > 0 && Math.abs(g.carcass.x - pr.x) < 0.9 && Math.random() < dt * 0.6) hurtPrincess(1, 'Burned');
+    }
+    if (!s.running) return;
+    // the princess
+    if (pr.grabbedBy && (pr.grabbedBy.dying || pr.grabbedBy.lifted)) { pr.grabbedBy = null; floatText(pr.x, 2.2, pr.z, 'Free!'); }
+    if (pr.grabbedBy) {
+      const gr = pr.grabbedBy; pr.x -= DRAG_SPEED * dt; gr.x = pr.x - 0.6; pr.waiting = false; pr.bob += dt * 6;
+      if (gAbs(pr.x) < (s.wave - 1) * SECTION_LEN - GORGE_LOST) { g.fail = 'The princess was dragged off'; gameOver(); return; }
+    } else if (!pr.waiting) {
+      // wolves right ahead on her bridge: the horse rears and she stops
+      let threat = false;
+      for (const en of s.enemies) if (!en.dying && en.b === 0 && !en.lifted && !en.falling && !en.descend && en.x > pr.x - 0.5 && en.x < pr.x + 3.4) threat = true;
+      if (threat && pr.mounted) pr.rear = Math.max(pr.rear, 0.35);
+      let v = pr.mounted ? RIDE_SPEED : WALK_SPEED; if (threat) v *= pr.mounted ? 0 : 0.35;
+      if (g.finished) v = RIDE_SPEED;
+      let nx = pr.x + v * dt;
+      for (const gt of g.gates) if (gt.b === 0 && gt.down) { const gx = gRel(gt.ax); if (nx > gx - 1.4 && pr.x <= gx - 1.4) { nx = gx - 1.4; if (gt.locked) pr.waiting = true; } }
+      if (v > 0 && !deckOk(0, gAbs(nx) + 0.5)) { g.fail = 'The road was gone'; pr.hp = 0; gameOver(); return; }
+      if (v > 0) { pr.gallop += dt * (pr.mounted ? 7.5 : 0); pr.bob += dt * 4; }
+      pr.x = nx;
+      if (g.finished && gAbs(pr.x) > GORGE_SECTIONS * SECTION_LEN + 2.5) { gorgeWin(); return; }
+    }
+    // contact on her bridge
+    for (const en of s.enemies) {
+      if (en.biteT > 0) en.biteT -= dt;
+      if (en.dying || en.lifted || en.falling || en.b !== 0 || en.descend || pr.grabbedBy === en) continue;
+      if (Math.abs(en.x - pr.x) < (pr.mounted ? 1.3 : 0.9)) {
+        if (pr.mounted) { if (en.biteT > 0) continue; en.biteT = 1.1; hurtHorse(1, 'Bitten'); en.x -= en.runDir * 1.6; en.pauseT = 0.7; }
+        else if (!pr.grabbedBy) { pr.grabbedBy = en; floatText(pr.x, 2.2, pr.z, 'Grabbed!'); buzz([40, 40, 40]); s.shake = Math.max(s.shake, 0.6); }
+      }
+    }
+    // the view follows her
+    if (!ride) { const sv = Math.max(-7, Math.min(7, (pr.x + 0.5) * 3)); shiftWorld(-sv * dt); g.scroll += sv * dt; }
+    // the land changes section by section
+    const th = Math.max(0, Math.min(GORGE_SECTIONS - 1, Math.floor(g.scroll / SECTION_LEN)));
+    if (th !== g.theme) { g.prevTheme = g.theme; g.theme = th; g.blend = 0; }
+    if (g.blend < 1) g.blend = Math.min(1, g.blend + dt / 3);
+    for (const bd of g.birds) { bd.t += dt; bd.x -= dt * 0.012 * bd.s; if (bd.x < -0.1) { bd.x = 1.1; bd.y = 0.1 + Math.random() * 0.3; } }
+    if (gorgeTheme().embers && Math.random() < dt * 10) s.particles.push({ x: (Math.random() * 2 - 1) * 12, y: Math.random() * 4, z: 6 + Math.random() * 20, vx: (Math.random() - 0.5) * 0.4, vy: 0.4 + Math.random() * 0.6, t: 0, life: 2.5 + Math.random() * 2, color: Math.random() < 0.5 ? '#ff8a2a' : '#ffb347', r: 0.04 + Math.random() * 0.04, flame: true, ember: true });
+  }
+  function gorgeWin() {
+    const s = state, pr = s.princess; s.running = false; s.aim = null; endRide();
+    const bonus = 600 + pr.hp * 100 + (pr.mounted ? 200 : 0); s.score += bonus; scoreEl.textContent = s.score;
+    if (s.score > best) { best = s.score; try { localStorage.setItem('rampart-best', String(best)); } catch (e) {} }
+    lastLevel = 9;
+    document.getElementById('overTitle').textContent = 'She reached the castle';
+    document.getElementById('overWave').textContent = (pr.mounted ? 'Still in the saddle' : 'On foot at the end') + '   bonus +' + bonus;
+    document.getElementById('overScore').textContent = s.score;
+    document.getElementById('overBest').textContent = 'Best: ' + best;
+    document.getElementById('againBtn').textContent = 'Ride again';
+    document.getElementById('switchBtn').textContent = 'Choose a stage';
+    hud.style.display = 'none'; overScr.classList.remove('hidden');
+  }
+
+  // ---- Gorge drawing ----
+  const GORGE_THEMES = [
+    { name: 'The gorge mouth', sky: ['#0b1618', '#14323a', '#2a5a55'], sun: { x: 0.5, y: 0.62, r: 0.3, cols: ['#ff5c3a', '#e8432a', '#b02a1e'], glow: 'rgba(240,80,40,.3)' }, ridge: ['#223a3c', '#17292c', '#0f1b1d'], pine: '#0a1416', river: '#d04a32', gorge: ['#132225', '#0a1214'], mist: '70,95,110', lip: 'rgba(255,120,70,.6)', stars: 0, birds: true },
+    { name: 'The aqueduct', sky: ['#1a1024', '#4a2440', '#c8663a'], sun: { x: 0.28, y: 0.84, r: 0.2, cols: ['#ffb060', '#ff7a3a', '#c0402a'], glow: 'rgba(255,140,60,.3)' }, ridge: ['#3c2a46', '#2a1e34', '#1c1426'], pine: '#140e1c', river: '#d08a50', gorge: ['#241a30', '#120c1a'], mist: '110,80,110', lip: 'rgba(255,170,90,.7)', stars: 0, aqueduct: true },
+    { name: 'The falls', sky: ['#0e1a2a', '#22405a', '#7a98ac'], sun: { x: 0.8, y: 0.9, r: 0.14, cols: ['#ffd0a0', '#ff9a60', '#d06040'], glow: 'rgba(255,170,120,.25)' }, ridge: ['#2c4454', '#1e3040', '#14202a'], pine: '#0c141c', river: '#9ac0d8', gorge: ['#1a2c3a', '#0e1822'], mist: '140,170,190', lip: 'rgba(200,225,245,.55)', stars: 0.3, falls: true },
+    { name: 'The burning town', sky: ['#0a0508', '#2c0c10', '#8a2a1a'], sun: null, ridge: ['#2c1212', '#1e0c0c', '#140808'], pine: '#0a0404', river: '#b03a22', gorge: ['#1e0c0c', '#0c0404'], mist: '90,30,20', lip: 'rgba(255,120,60,.7)', stars: 0, town: true, embers: true },
+    { name: 'The castle road', sky: ['#05081a', '#0d1a40', '#223a6a'], sun: null, moon: { x: 0.72, y: 0.2, r: 0.07 }, ridge: ['#16223e', '#0f1830', '#0a1022'], pine: '#060a16', river: '#3a5a8a', gorge: ['#0e1628', '#070b16'], mist: '40,60,110', lip: 'rgba(170,200,255,.5)', stars: 1, castle: true },
+  ];
+  const tri = v => Math.abs(((v % 2) + 2) % 2 - 1);
+  function gorgeRidge(y0, amp, f1, f2, off, col) {
+    ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(-20, H + 20);
+    for (let x = -20; x <= W + 20; x += 7) { const xa = (x + off) / W; ctx.lineTo(x, y0 - amp * (0.65 * tri(xa * f1) + 0.35 * tri(xa * f2 + 0.7))); }
+    ctx.lineTo(W + 20, H + 20); ctx.closePath(); ctx.fill();
+  }
+  function pineLine(by, step, hh, col, off) {
+    // a row of pines that slides with the view; each tooth's height comes from its index so the row tiles forever
+    ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(-20, by + 40);
+    const i0 = Math.floor((off - 20) / step), x0 = i0 * step - off;
+    for (let i = 0; x0 + (i - i0) * step <= W + 20 + step; i++) { const idx = i0 + i, x = x0 + i * step; const h = hh * (0.5 + 0.8 * tri(idx * 0.37 + by * 0.001)); ctx.lineTo(x, by); ctx.lineTo(x + step * 0.5, by - h); }
+    ctx.lineTo(W + 20, by + 40); ctx.closePath(); ctx.fill();
+  }
+  // a castle silhouette: the destination, growing on the horizon section by section
+  function drawCastle(cx, base, sc, col, lit, litCol) {
+    const t = [[-0.22, 0.42, 0.075], [-0.08, 0.6, 0.09], [0.08, 0.5, 0.08], [0.2, 0.36, 0.065], [0, 0.3, 0.3]];
+    ctx.fillStyle = col;
+    for (const [ox, hh, hw] of t) {
+      const x = cx + ox * W * sc, w = hw * W * sc, h = hh * W * sc;
+      ctx.fillRect(x - w / 2, base - h, w, h + 4);
+      if (hw < 0.2) { ctx.beginPath(); ctx.moveTo(x - w * 0.6, base - h); ctx.lineTo(x, base - h - w * 1.1); ctx.lineTo(x + w * 0.6, base - h); ctx.closePath(); ctx.fill(); }
+      else for (let i = -3; i <= 3; i++) ctx.fillRect(x + i * w * 0.14 - w * 0.04, base - h - w * 0.05, w * 0.08, w * 0.06);
+    }
+    // beacon lines and lit windows
+    ctx.fillStyle = litCol || '#ff3a2a';
+    for (const [ox, hh] of [[-0.08, 0.6], [0.08, 0.5]]) ctx.fillRect(cx + ox * W * sc + 1, base - hh * W * sc * 0.9, Math.max(1, W * sc * 0.006), hh * W * sc * 0.55);
+    if (lit) { ctx.fillStyle = 'rgba(255,190,90,.8)'; const r = srand(cx * 0.01 + 1); for (let i = 0; i < 14; i++) { const ox = (r() * 2 - 1) * 0.26, hy2 = 0.05 + r() * 0.4; ctx.fillRect(cx + ox * W * sc, base - hy2 * W * sc, Math.max(1.5, W * sc * 0.008), Math.max(2, W * sc * 0.014)); } }
+    // the gate: a warm arch at the foot
+    if (!lit) return;
+    const gw = W * sc * 0.06, gh = W * sc * 0.08;
+    ctx.fillStyle = 'rgba(255,170,70,.75)';
+    ctx.beginPath(); ctx.moveTo(cx - gw / 2, base + 2); ctx.lineTo(cx - gw / 2, base - gh * 0.6); ctx.arc(cx, base - gh * 0.6, gw / 2, Math.PI, 0); ctx.lineTo(cx + gw / 2, base + 2); ctx.closePath(); ctx.fill();
+  }
+  function drawGorgeTheme(hy, th, ti) {
+    const g = state.gorge, px = g.scroll * W * 0.006, t = performance.now() / 1000;
+    const sky = ctx.createLinearGradient(0, 0, 0, hy * 1.1);
+    sky.addColorStop(0, th.sky[0]); sky.addColorStop(0.6, th.sky[1]); sky.addColorStop(1, th.sky[2]);
+    ctx.fillStyle = sky; ctx.fillRect(-20, -20, W + 40, hy * 1.1 + 20);
+    if (th.stars > 0) { const r = srand(5.5 + ti); ctx.fillStyle = 'rgba(230,235,250,' + (0.5 * th.stars) + ')'; for (let i = 0; i < 60 * th.stars; i++) ctx.fillRect(r() * W, r() * hy * 0.7, 1.3, 1.3); }
+    if (th.sun) {
+      const sx = W * th.sun.x - px * 0.3, sy = hy * th.sun.y, sr = W * th.sun.r;
+      const sg = ctx.createRadialGradient(sx, sy, sr * 0.6, sx, sy, sr * 2.2); sg.addColorStop(0, th.sun.glow); sg.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = sg; ctx.fillRect(-20, -20, W + 40, hy * 1.2);
+      const sun = ctx.createLinearGradient(0, sy - sr, 0, sy + sr); sun.addColorStop(0, th.sun.cols[0]); sun.addColorStop(0.6, th.sun.cols[1]); sun.addColorStop(1, th.sun.cols[2]);
+      ctx.save(); ctx.beginPath(); ctx.rect(-20, -20, W + 40, hy * 0.95 + 20); ctx.clip();
+      ctx.fillStyle = sun; ctx.beginPath(); ctx.arc(sx, sy, sr, 0, 6.28); ctx.fill(); ctx.restore();
+    }
+    if (th.moon) {
+      const mx = W * th.moon.x - px * 0.2, my = hy * th.moon.y, mr = W * th.moon.r;
+      const mg = ctx.createRadialGradient(mx, my, mr * 0.3, mx, my, mr * 3.5); mg.addColorStop(0, 'rgba(210,220,255,.35)'); mg.addColorStop(1, 'rgba(210,220,255,0)');
+      ctx.fillStyle = mg; ctx.beginPath(); ctx.arc(mx, my, mr * 3.5, 0, 6.28); ctx.fill();
+      ctx.fillStyle = '#e8ecf8'; ctx.beginPath(); ctx.arc(mx, my, mr, 0, 6.28); ctx.fill();
+    }
+    // far crags, three layers, sliding slowly with the view
+    gorgeRidge(hy * 0.92, hy * 0.42, 3.1, 7.3, px * 0.5 + ti * 300, th.ridge[0]);
+    gorgeRidge(hy * 1.0, hy * 0.3, 4.7, 9.1, px * 0.9 + ti * 900, th.ridge[1]);
+    if (th.aqueduct) {
+      // tiers of arches marching across the valley behind the bridges
+      for (const [by, hh, col] of [[hy * 1.02, hy * 0.26, '#3a2c44'], [hy * 1.14, hy * 0.2, '#2c2036']]) {
+        ctx.fillStyle = col; ctx.fillRect(-20, by - hh, W + 40, hh);
+        ctx.fillStyle = th.sky[1]; const aw = W * 0.07, step = W * 0.11;
+        for (let x = -((px * 0.6) % step) - step; x < W + step; x += step) { ctx.beginPath(); ctx.moveTo(x - aw / 2, by); ctx.lineTo(x - aw / 2, by - hh * 0.45); ctx.arc(x, by - hh * 0.45, aw / 2, Math.PI, 0); ctx.lineTo(x + aw / 2, by); ctx.closePath(); ctx.fill(); }
+      }
+    }
+    if (th.falls) {
+      // a tall fall dropping out of the crags, white water and mist
+      const fx = W * 0.6 - px * 0.7, fw = W * 0.11, top = hy * 0.7, bot = hy * 1.9;
+      const fg = ctx.createLinearGradient(0, top, 0, bot); fg.addColorStop(0, 'rgba(220,235,245,.85)'); fg.addColorStop(0.7, 'rgba(190,215,235,.7)'); fg.addColorStop(1, 'rgba(190,215,235,0)');
+      ctx.fillStyle = fg; ctx.beginPath(); ctx.moveTo(fx - fw * 0.35, top); ctx.lineTo(fx + fw * 0.35, top); ctx.lineTo(fx + fw * 0.6, bot); ctx.lineTo(fx - fw * 0.6, bot); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 1.5;
+      for (let i = 0; i < 6; i++) { const ox = (i / 5 - 0.5) * fw * 0.8, y0 = top + ((t * 120 + i * 97) % (bot - top)); ctx.beginPath(); ctx.moveTo(fx + ox, y0); ctx.lineTo(fx + ox * 1.1, Math.min(bot, y0 + hy * 0.12)); ctx.stroke(); }
+      const mg = ctx.createRadialGradient(fx, bot * 0.92, 2, fx, bot * 0.92, fw * 2.4); mg.addColorStop(0, 'rgba(200,220,235,.5)'); mg.addColorStop(1, 'rgba(200,220,235,0)');
+      ctx.fillStyle = mg; ctx.beginPath(); ctx.ellipse(fx, bot * 0.92, fw * 2.4, fw * 1.2, 0, 0, 6.28); ctx.fill();
+    }
+    if (th.town) {
+      // a ruined town along the far ridge, roofs burning
+      const by = hy * 1.0, r = srand(9.1);
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      const fg = ctx.createLinearGradient(0, by - hy * 0.4, 0, by); fg.addColorStop(0, 'rgba(255,90,30,0)'); fg.addColorStop(1, 'rgba(255,90,30,.22)');
+      ctx.fillStyle = fg; ctx.fillRect(-20, by - hy * 0.4, W + 40, hy * 0.4); ctx.restore();
+      let x = -((px * 0.8) % (W * 0.09)) - W * 0.1;
+      while (x < W + 40) {
+        const w = W * (0.04 + r() * 0.05), h = hy * (0.08 + r() * 0.14);
+        ctx.fillStyle = '#160808'; ctx.fillRect(x, by - h, w, h + 4);
+        ctx.beginPath(); ctx.moveTo(x - 2, by - h); ctx.lineTo(x + w / 2, by - h - w * 0.5); ctx.lineTo(x + w + 2, by - h); ctx.closePath(); ctx.fill();
+        if (r() < 0.6) { ctx.fillStyle = 'rgba(255,160,60,' + (0.5 + Math.sin(t * 7 + x) * 0.3) + ')'; ctx.fillRect(x + w * 0.3, by - h * 0.6, w * 0.15, h * 0.2); }
+        if (r() < 0.5) { ctx.fillStyle = 'rgba(80,50,50,.35)'; for (let i = 0; i < 4; i++) ctx.beginPath(), ctx.ellipse(x + w / 2 + i * w * 0.25 + Math.sin(t * 0.6 + i) * w * 0.2, by - h - w * 0.5 - i * h * 0.35, w * (0.3 + i * 0.12), h * 0.14, 0, 0, 6.28), ctx.fill(); }
+        x += w + W * r() * 0.03;
+      }
+    }
+    // the castle on the right, bigger every section
+    const sc = th.castle ? 1.7 : 0.45 + ti * 0.22;
+    drawCastle(W * 0.9 - px * (th.castle ? 0.25 : 0.12), hy * (th.castle ? 1.26 : 1.02), sc, th.castle ? '#0a0e1c' : th.ridge[1], th.castle, undefined);
+    gorgeRidge(hy * 1.08, hy * 0.22, 6.3, 11.7, px * 1.4 + ti * 1500, th.ridge[2]);
+    pineLine(hy * 1.1, W * 0.045, hy * 0.11, th.pine, px * 1.3);
+    // down into the gorge: haze, the river far below, and the slopes
+    const gg = ctx.createLinearGradient(0, hy * 1.05, 0, H);
+    gg.addColorStop(0, th.gorge[0]); gg.addColorStop(1, th.gorge[1]);
+    ctx.fillStyle = gg; ctx.fillRect(-20, hy * 1.05, W + 40, H - hy * 1.05 + 20);
+    // the river winds in from the horizon and swings out under the near bridge
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = th.river; ctx.globalAlpha = 0.55;
+    ctx.beginPath();
+    const pts = [];
+    for (let i = 0; i <= 10; i++) { const k = i / 10; pts.push([W * (0.5 - k * 0.42 + Math.sin(k * 6 + px * 0.002) * 0.09 * k), hy * 1.08 + (H * 0.82 - hy * 1.08) * k, W * (0.004 + k * k * 0.16)]); }
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (const [x, y, w] of pts) ctx.lineTo(x - w / 2, y);
+    for (let i = pts.length - 1; i >= 0; i--) ctx.lineTo(pts[i][0] + pts[i][2] / 2, pts[i][1]);
+    ctx.closePath(); ctx.fill(); ctx.restore();
+    pineLine(hy * 1.46, W * 0.07, hy * 0.2, th.gorge[1], px * 2.6);
+    pineLine(H * 0.76, W * 0.11, hy * 0.26, mix(th.gorge[1], '#000', 0.4), px * 4.5);
+    if (th.birds) {
+      ctx.strokeStyle = 'rgba(20,30,34,.8)'; ctx.lineWidth = 1.5;
+      for (const bd of g.birds) { const x = bd.x * W, y = hy * (bd.y + Math.sin(bd.t * 1.3) * 0.01), s = W * 0.012 * bd.s, f = Math.sin(bd.t * 6) * 0.5; ctx.beginPath(); ctx.moveTo(x - s, y - f * s * 0.6); ctx.lineTo(x, y); ctx.lineTo(x + s, y - f * s * 0.6); ctx.stroke(); }
+    }
+  }
+  function drawGorgeBackdrop(hy) {
+    const g = state.gorge;
+    if (g.blend < 1 && g.prevTheme >= 0) {
+      drawGorgeTheme(hy, GORGE_THEMES[g.prevTheme], g.prevTheme);
+      ctx.save(); ctx.globalAlpha = g.blend; drawGorgeTheme(hy, GORGE_THEMES[g.theme], g.theme); ctx.restore();
+    } else drawGorgeTheme(hy, GORGE_THEMES[g.theme], g.theme);
+  }
+  // a band of haze at a depth: softens whatever is further away
+  function drawMist(m) {
+    const p = project(camX, -0.6, m.z); if (p.behind) return;
+    const c = gorgeTheme().mist;
+    const gr = ctx.createLinearGradient(0, p.sy, 0, Math.min(H, p.sy + H * 0.45));
+    gr.addColorStop(0, 'rgba(' + c + ',' + m.a + ')'); gr.addColorStop(1, 'rgba(' + c + ',0)');
+    ctx.fillStyle = gr; ctx.fillRect(-20, p.sy, W + 40, H);
+  }
+  function pierAt(ax, b, col) {
+    const B = BRIDGES[b], x = gRel(ax), top = B.y - 1.7;
+    const a = project(x - 0.5, top, B.z), c = project(x + 0.5, top, B.z), d = project(x - 0.75, top - 8, B.z), e = project(x + 0.75, top - 8, B.z);
+    const gr = ctx.createLinearGradient(0, a.sy, 0, d.sy); gr.addColorStop(0, col); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gr; ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(c.sx, c.sy); ctx.lineTo(e.sx, e.sy); ctx.lineTo(d.sx, d.sy); ctx.closePath(); ctx.fill();
+  }
+  function drawSpan(sp) {
+    const B = BRIDGES[sp.b], th = gorgeTheme();
+    const x0 = gRel(sp.ax0), x1 = gRel(sp.ax1), y = B.y, z = B.z, depth = sp.b / 2;
+    const top = mix('#262c3a', '#3a4254', depth), face = mix('#171c2a', '#262c3e', depth), dark = mix('#0b0e18', '#171c2a', depth);
+    const r = srand(sp.seed * 9 + sp.b);
+    const quad = (p1, p2, p3, p4, col) => { ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(p1.sx, p1.sy); ctx.lineTo(p2.sx, p2.sy); ctx.lineTo(p3.sx, p3.sy); ctx.lineTo(p4.sx, p4.sy); ctx.closePath(); ctx.fill(); };
+    const ht = 1.7;
+    if (sp.down) {
+      // broken stubs at each end, a pier under each
+      for (const [sx0, sx1] of [[x0, x0 + 1.2], [x1 - 1.2, x1]]) {
+        quad(project(sx0, y, z), project(sx1, y, z), project(sx1, y, z + DECK_D), project(sx0, y, z + DECK_D), top);
+        const g0 = project(sx0, y - ht, z), g1 = project(sx1, y - ht * 0.7, z), a = project(sx0, y, z), b = project(sx1, y, z);
+        quad(a, b, g1, g0, face);
+      }
+      pierAt(sp.ax0, sp.b, face); pierAt(sp.ax1, sp.b, face);
+      return;
+    }
+    // deck, far parapet, near parapet
+    const a = project(x0, y, z), b = project(x1, y, z), c = project(x1, y, z + DECK_D), d = project(x0, y, z + DECK_D);
+    quad(a, b, c, d, top);
+    quad(d, project(x0, y + 0.45, z + DECK_D), project(x1, y + 0.45, z + DECK_D), c, mix(top, '#000', 0.3));
+    const a2 = project(x0, y + 0.45, z), b2 = project(x1, y + 0.45, z);
+    quad(a, a2, b2, b, face);
+    quad(a2, project(x0, y + 0.45, z + 0.3), project(x1, y + 0.45, z + 0.3), b2, mix(top, '#fff', 0.1));
+    ctx.strokeStyle = th.lip; ctx.lineWidth = Math.max(1.2, a.s * 0.05); ctx.beginPath(); ctx.moveTo(a2.sx, a2.sy); ctx.lineTo(b2.sx, b2.sy); ctx.stroke();
+    // the body of the viaduct under the deck: three open arches you see the gorge through
+    const g0 = project(x0, y - ht, z), g1 = project(x1, y - ht, z);
+    const gr = ctx.createLinearGradient(0, a.sy, 0, g0.sy); gr.addColorStop(0, face); gr.addColorStop(1, dark);
+    ctx.fillStyle = gr; ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.lineTo(g1.sx, g1.sy); ctx.lineTo(g0.sx, g0.sy); ctx.closePath();
+    for (let i = 0; i < 3; i++) {
+      const cx = x0 + SPAN_LEN * (i + 0.5) / 3, hw = 1.2;
+      const p1 = project(cx - hw, y - ht - 0.5, z), p2 = project(cx - hw, y - 1.0, z), ap = project(cx, y - 0.45, z), p3 = project(cx + hw, y - 1.0, z), p4 = project(cx + hw, y - ht - 0.5, z);
+      ctx.moveTo(p1.sx, p1.sy); ctx.lineTo(p2.sx, p2.sy); ctx.quadraticCurveTo(ap.sx, ap.sy - (p2.sy - ap.sy) * 0.55, p3.sx, p3.sy); ctx.lineTo(p4.sx, p4.sy); ctx.closePath();
+    }
+    ctx.fill('evenodd');
+    pierAt(sp.ax0, sp.b, face);
+    if (!spanAt(sp.b, sp.ax1)) pierAt(sp.ax1, sp.b, face);
+    // a red pennant on some spans, a torch on the parapet at night
+    if (r() < 0.4) {
+      const fx = x0 + 1 + r() * 8, q0 = project(fx - 0.35, y - 0.1, z), q1 = project(fx + 0.35, y - 0.1, z), q2 = project(fx, y - 2.6, z);
+      ctx.fillStyle = '#9c2420'; ctx.beginPath(); ctx.moveTo(q0.sx, q0.sy); ctx.lineTo(q1.sx, q1.sy); ctx.lineTo(q2.sx, q2.sy); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = 'rgba(240,192,82,.6)'; ctx.lineWidth = Math.max(1, q0.s * 0.03); const qm = project(fx, y - 1.1, z); ctx.beginPath(); ctx.arc(qm.sx, qm.sy, Math.max(2, q0.s * 0.18), 0, 6.28); ctx.stroke();
+    }
+    if (th.stars > 0.5 || th.town) {
+      const tx = x0 + 5, tq = project(tx, y + 1.2, z + 0.15), tb = project(tx, y + 0.45, z + 0.15);
+      ctx.strokeStyle = '#110c0a'; ctx.lineWidth = Math.max(1.5, tq.s * 0.06); ctx.beginPath(); ctx.moveTo(tb.sx, tb.sy); ctx.lineTo(tq.sx, tq.sy); ctx.stroke();
+      ctx.save(); ctx.globalCompositeOperation = 'lighter'; const lg = ctx.createRadialGradient(tq.sx, tq.sy, 1, tq.sx, tq.sy, tq.s * 1.3); lg.addColorStop(0, 'rgba(255,180,80,.45)'); lg.addColorStop(1, 'rgba(255,110,30,0)'); ctx.fillStyle = lg; ctx.beginPath(); ctx.arc(tq.sx, tq.sy, tq.s * 1.3, 0, 6.28); ctx.fill(); ctx.restore();
+      ctx.fillStyle = '#ff8a2a'; ctx.beginPath(); ctx.ellipse(tq.sx, tq.sy - tq.s * 0.1, tq.s * 0.09, tq.s * 0.18, 0, 0, 6.28); ctx.fill();
+    }
+  }
+  function drawDescent(dsc) {
+    const B = BRIDGES[dsc.b], L = BRIDGES[dsc.b - 1], x = gRel(dsc.ax), zc = (B.z + L.z) / 2;
+    const p = (xx, yy) => project(xx, yy, zc);
+    const a = p(x - 0.9, L.y - 0.2), b = p(x + 0.9, L.y - 0.2), c = p(x + 0.9, B.y + 1.6), d = p(x - 0.9, B.y + 1.6);
+    const gr = ctx.createLinearGradient(0, d.sy, 0, a.sy); gr.addColorStop(0, '#2a3242'); gr.addColorStop(1, '#141826');
+    ctx.fillStyle = gr; ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.lineTo(c.sx, c.sy); ctx.lineTo(d.sx, d.sy); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#343c4e'; ctx.beginPath(); ctx.moveTo(d.sx, d.sy); ctx.lineTo(c.sx, c.sy); ctx.lineTo(c.sx, c.sy - c.s * 0.25); ctx.lineTo(d.sx, d.sy - d.s * 0.25); ctx.closePath(); ctx.fill();
+    // doors top and bottom, and the stair zig-zagging between
+    ctx.fillStyle = 'rgba(6,9,16,.8)';
+    for (const yy of [L.y, B.y]) { const q = p(x, yy), hw = q.s * 0.35, hh = q.s * 1.2; ctx.beginPath(); ctx.moveTo(q.sx - hw, q.sy); ctx.lineTo(q.sx - hw, q.sy - hh * 0.7); ctx.arc(q.sx, q.sy - hh * 0.7, hw, Math.PI, 0); ctx.lineTo(q.sx + hw, q.sy); ctx.closePath(); ctx.fill(); }
+    ctx.strokeStyle = 'rgba(0,0,0,.4)'; ctx.lineWidth = 1;
+    for (let i = 0; i < 5; i++) { const y0 = L.y + 1.4 + (B.y - L.y - 1.4) * i / 5, q0 = p(x - 0.6, y0), q1 = p(x + 0.6, y0 + 0.2); ctx.beginPath(); ctx.moveTo(q0.sx, q0.sy); ctx.lineTo(q1.sx, q1.sy); ctx.stroke(); }
+  }
+  function drawGate(gt) {
+    const B = BRIDGES[gt.b], x = gRel(gt.ax), y = B.y, z = B.z, big = gt.locked;
+    const hw = big ? 1.5 : 1.05, ht = big ? 4.4 : 3.3, aw = 0.85, ah = 2.3;
+    const p = (xx, yy, zz) => project(xx, yy, zz == null ? z : zz);
+    const c0 = p(x - hw, y), c1 = p(x + hw, y), c2 = p(x + hw, y + ht), c3 = p(x - hw, y + ht);
+    // tower face with the arch cut out
+    const gr = ctx.createLinearGradient(0, c3.sy, 0, c0.sy); gr.addColorStop(0, big ? '#2e3648' : '#2a3040'); gr.addColorStop(1, '#141826');
+    ctx.fillStyle = gr; ctx.beginPath(); ctx.moveTo(c0.sx, c0.sy); ctx.lineTo(c1.sx, c1.sy); ctx.lineTo(c2.sx, c2.sy); ctx.lineTo(c3.sx, c3.sy); ctx.closePath();
+    const o0 = p(x - aw, y), o1 = p(x - aw, y + ah * 0.65), oa = p(x, y + ah), o2 = p(x + aw, y + ah * 0.65), o3 = p(x + aw, y);
+    ctx.moveTo(o0.sx, o0.sy); ctx.lineTo(o1.sx, o1.sy); ctx.quadraticCurveTo(oa.sx, oa.sy - (o1.sy - oa.sy) * 0.5, o2.sx, o2.sy); ctx.lineTo(o3.sx, o3.sy); ctx.closePath(); ctx.fill('evenodd');
+    // side depth and crenellations
+    const s0 = p(x + hw, y, z + DECK_D + 0.4), s1 = p(x + hw, y + ht, z + DECK_D + 0.4);
+    ctx.fillStyle = '#0e1220'; ctx.beginPath(); ctx.moveTo(c1.sx, c1.sy); ctx.lineTo(s0.sx, s0.sy); ctx.lineTo(s1.sx, s1.sy); ctx.lineTo(c2.sx, c2.sy); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = big ? '#363e52' : '#30384a';
+    for (let i = -2; i <= 2; i++) { const q = p(x + i * hw * 0.4, y + ht); ctx.fillRect(q.sx - q.s * 0.14, q.sy - q.s * 0.35, q.s * 0.28, q.s * 0.37); }
+    ctx.strokeStyle = gorgeTheme().lip; ctx.lineWidth = Math.max(1, c3.s * 0.04); ctx.beginPath(); ctx.moveTo(c3.sx, c3.sy); ctx.lineTo(c2.sx, c2.sy); ctx.stroke();
+    // portcullis: slides down over a second
+    const pos = gt.down ? 1 - Math.max(0, Math.min(1, gt.t)) : Math.max(0, Math.min(1, gt.t));
+    if (pos > 0.02) {
+      const bot = y + ah * (1 - pos) + 0.02, tp = y + ah;
+      ctx.strokeStyle = '#1b1b24'; ctx.lineWidth = Math.max(1.5, c0.s * 0.06); ctx.lineCap = 'butt';
+      for (let i = -2; i <= 2; i++) { const xx = x + i * aw * 0.4, q0 = p(xx, bot), q1 = p(xx, tp); ctx.beginPath(); ctx.moveTo(q0.sx, q0.sy + c0.s * 0.12); ctx.lineTo(q1.sx, q1.sy); ctx.stroke(); }
+      for (let i = 0; i < 4; i++) { const yy = bot + (tp - bot) * (i + 0.5) / 4, q0 = p(x - aw, yy), q1 = p(x + aw, yy); ctx.beginPath(); ctx.moveTo(q0.sx, q0.sy); ctx.lineTo(q1.sx, q1.sy); ctx.stroke(); }
+    }
+    // the winch above the arch: shootable on the ordinary gates
+    const wq = p(x, y + 2.95), ws = wq.s;
+    if (!big) {
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      const pulse = 0.7 + Math.sin(performance.now() / 180) * 0.3;
+      const lg = ctx.createRadialGradient(wq.sx, wq.sy, 1, wq.sx, wq.sy, ws * 0.9); lg.addColorStop(0, 'rgba(240,192,82,' + (0.35 * pulse) + ')'); lg.addColorStop(1, 'rgba(240,192,82,0)');
+      ctx.fillStyle = lg; ctx.beginPath(); ctx.arc(wq.sx, wq.sy, ws * 0.9, 0, 6.28); ctx.fill(); ctx.restore();
+      ctx.fillStyle = '#5a4a30'; ctx.fillRect(wq.sx - ws * 0.3, wq.sy - ws * 0.25, ws * 0.6, ws * 0.5);
+      ctx.strokeStyle = '#f0c052'; ctx.lineWidth = Math.max(1, ws * 0.04); ctx.strokeRect(wq.sx - ws * 0.3, wq.sy - ws * 0.25, ws * 0.6, ws * 0.5);
+      ctx.strokeStyle = '#8a8a94'; ctx.beginPath(); ctx.moveTo(wq.sx, wq.sy + ws * 0.25); ctx.lineTo(wq.sx, wq.sy + ws * 0.55); ctx.stroke();
+    } else {
+      // the gatehouse: a banner and two torches; the portcullis glows red while it's locked
+      const b0 = p(x - 0.35, y + ht - 0.4), b1 = p(x + 0.35, y + ht - 0.4), b2 = p(x, y + 1.0);
+      ctx.fillStyle = '#9c2420'; ctx.beginPath(); ctx.moveTo(b0.sx, b0.sy); ctx.lineTo(b1.sx, b1.sy); ctx.lineTo(b2.sx, b2.sy); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = 'rgba(240,192,82,.7)'; ctx.lineWidth = Math.max(1, b0.s * 0.03); const bm = p(x, y + ht - 1.6); ctx.beginPath(); ctx.arc(bm.sx, bm.sy, Math.max(2, b0.s * 0.2), 0, 6.28); ctx.stroke();
+      for (const sx of [-1, 1]) { const tq = p(x + sx * (hw + 0.2), y + 2.4), tb = p(x + sx * (hw + 0.2), y + 1.7); ctx.strokeStyle = '#110c0a'; ctx.lineWidth = Math.max(1.5, tq.s * 0.06); ctx.beginPath(); ctx.moveTo(tb.sx, tb.sy); ctx.lineTo(tq.sx, tq.sy); ctx.stroke(); ctx.save(); ctx.globalCompositeOperation = 'lighter'; const lg = ctx.createRadialGradient(tq.sx, tq.sy, 1, tq.sx, tq.sy, tq.s * 1.4); lg.addColorStop(0, 'rgba(255,180,80,.5)'); lg.addColorStop(1, 'rgba(255,110,30,0)'); ctx.fillStyle = lg; ctx.beginPath(); ctx.arc(tq.sx, tq.sy, tq.s * 1.4, 0, 6.28); ctx.fill(); ctx.restore(); ctx.fillStyle = '#ff8a2a'; ctx.beginPath(); ctx.ellipse(tq.sx, tq.sy - tq.s * 0.1, tq.s * 0.09, tq.s * 0.2, 0, 0, 6.28); ctx.fill(); }
+      if (gt.down) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; const q = p(x, y + 1.1), lg = ctx.createRadialGradient(q.sx, q.sy, 1, q.sx, q.sy, q.s * 1.2); lg.addColorStop(0, 'rgba(255,60,40,.25)'); lg.addColorStop(1, 'rgba(255,60,40,0)'); ctx.fillStyle = lg; ctx.beginPath(); ctx.arc(q.sx, q.sy, q.s * 1.2, 0, 6.28); ctx.fill(); ctx.restore(); }
+    }
+  }
+  function drawCauldron(c) {
+    const B = BRIDGES[c.b], x = gRel(c.ax), y = B.y, z = B.z + DECK_D;
+    const p = (xx, yy) => project(xx, yy, z);
+    const base = p(x, y + 0.45), topq = p(x, y + 2.1), pot = p(x, y + 2.4), s = pot.s;
+    ctx.strokeStyle = '#1a1c28'; ctx.lineWidth = Math.max(2, s * 0.22); ctx.beginPath(); ctx.moveTo(base.sx, base.sy); ctx.lineTo(topq.sx, topq.sy); ctx.stroke();
+    ctx.fillStyle = '#262c3a'; ctx.fillRect(topq.sx - s * 0.6, topq.sy - s * 0.12, s * 1.2, s * 0.14);
+    ctx.save(); ctx.translate(pot.sx, pot.sy);
+    if (c.pour > 0 || c.used) ctx.rotate(-1.1 * Math.min(1, (1.2 - Math.max(0, c.pour)) / 0.4));
+    ctx.fillStyle = c.used ? '#2a2a32' : '#1e1e26';
+    ctx.beginPath(); ctx.moveTo(-s * 0.5, -s * 0.1); ctx.lineTo(s * 0.5, -s * 0.1); ctx.lineTo(s * 0.38, s * 0.45); ctx.lineTo(-s * 0.38, s * 0.45); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#3a3a44'; ctx.fillRect(-s * 0.55, -s * 0.2, s * 1.1, s * 0.12);
+    if (!c.used) {
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      const fl = 0.8 + Math.sin(performance.now() / 90 + x) * 0.2;
+      const lg = ctx.createRadialGradient(0, -s * 0.2, 1, 0, -s * 0.2, s * 0.9 * fl); lg.addColorStop(0, 'rgba(255,170,60,.6)'); lg.addColorStop(1, 'rgba(255,110,30,0)');
+      ctx.fillStyle = lg; ctx.beginPath(); ctx.arc(0, -s * 0.2, s * 0.9 * fl, 0, 6.28); ctx.fill(); ctx.restore();
+      ctx.fillStyle = '#ffb347'; ctx.beginPath(); ctx.ellipse(0, -s * 0.16, s * 0.42, s * 0.1, 0, 0, 6.28); ctx.fill();
+    }
+    ctx.restore();
+    if (c.pour > 0) { const d = p(x - 0.6, y + 0.1); ctx.strokeStyle = 'rgba(255,150,50,.85)'; ctx.lineWidth = Math.max(2, s * 0.2); ctx.beginPath(); ctx.moveTo(pot.sx - s * 0.5, pot.sy); ctx.quadraticCurveTo(pot.sx - s * 0.9, (pot.sy + d.sy) / 2, d.sx, d.sy); ctx.stroke(); }
+  }
+  function drawKegs(k) {
+    const B = BRIDGES[k.b], x = gRel(k.ax), y = B.y, z = B.z;
+    const q = project(x, y - 0.75, z), s = q.s;
+    ctx.strokeStyle = '#2a2018'; ctx.lineWidth = Math.max(1, s * 0.03);
+    for (const ox of [-0.45, 0, 0.45]) { const t = project(x + ox, y - 0.05, z), b = project(x + ox, y - 0.7, z); ctx.beginPath(); ctx.moveTo(t.sx, t.sy); ctx.lineTo(b.sx, b.sy); ctx.stroke(); }
+    for (const ox of [-0.5, 0, 0.5]) {
+      const kq = project(x + ox, y - 1.05, z), w = s * 0.46, h = s * 0.62;
+      ctx.fillStyle = '#5a3a24'; roundRect(kq.sx - w / 2, kq.sy - h / 2, w, h, w * 0.2); ctx.fill();
+      ctx.fillStyle = '#2a2a33'; ctx.fillRect(kq.sx - w / 2, kq.sy - h * 0.28, w, h * 0.08); ctx.fillRect(kq.sx - w / 2, kq.sy + h * 0.2, w, h * 0.08);
+    }
+    if (k.fuse > 0) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; const lg = ctx.createRadialGradient(q.sx, q.sy, 1, q.sx, q.sy, s * 1.1); lg.addColorStop(0, 'rgba(255,200,100,.5)'); lg.addColorStop(1, 'rgba(255,120,30,0)'); ctx.fillStyle = lg; ctx.beginPath(); ctx.arc(q.sx, q.sy, s * 1.1, 0, 6.28); ctx.fill(); ctx.restore(); }
+  }
+  function drawCarcass(cs) {
+    const p = project(cs.x, 0, cs.z), u = p.s;
+    const dark = cs.burning > 0 ? mix('#2a1e18', '#0e0a08', 0.5) : '#2a1e18';
+    ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(p.sx, p.sy, u * 1.1, u * 0.2, 0, 0, 6.28); ctx.fill();
+    ctx.fillStyle = dark;
+    ctx.beginPath(); ctx.ellipse(p.sx, p.sy - u * 0.32, u * 0.95, u * 0.34, 0, 0, 6.28); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(p.sx + u * 1.05, p.sy - u * 0.22, u * 0.3, u * 0.17, 0.3, 0, 6.28); ctx.fill();
+    ctx.strokeStyle = dark; ctx.lineWidth = Math.max(2, u * 0.11); ctx.lineCap = 'round';
+    for (const [ox, oy, dx] of [[-0.5, -0.1, -0.5], [-0.3, -0.05, -0.35], [0.4, -0.08, 0.5], [0.6, -0.02, 0.45]]) { ctx.beginPath(); ctx.moveTo(p.sx + ox * u, p.sy + oy * u); ctx.lineTo(p.sx + (ox + dx) * u, p.sy + (oy - 0.08) * u); ctx.stroke(); }
+  }
+  // The princess on her horse, riding toward the castle. On foot she is drawn as in the meadow.
+  function drawRider(pr) {
+    if (!pr.mounted) { drawPrincess(pr); return; }
+    const p = project(pr.x, 0, pr.z), u = p.s, hw = 1.9 * u, hh = 1.25 * u;
+    const run = !pr.waiting && pr.rear <= 0 && !pr.grabbedBy && pr.hit <= 0 || state.gorge.finished;
+    const gal = pr.gallop, flash = pr.horseHit > 0;
+    const coat = flash ? '#ffffff' : '#3a2a22', dark = flash ? '#ffffff' : '#1c1310';
+    ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(p.sx, p.sy, hw * 0.55, u * 0.2, 0, 0, 6.28); ctx.fill();
+    ctx.save(); ctx.translate(p.sx, p.sy);
+    if (pr.rear > 0) { const k = Math.min(1, pr.rear / 0.25); ctx.translate(-hw * 0.38, 0); ctx.rotate(-0.55 * k); ctx.translate(hw * 0.38, 0); }
+    const bob = run ? Math.abs(Math.sin(gal)) * hh * 0.06 : 0;
+    // legs (hind pair then fore pair), gallop cycle
+    const legTh = Math.max(2, u * 0.12);
+    const legs = [[-0.34, 0, 1], [-0.24, Math.PI, 1], [0.24, Math.PI * 0.6, -1], [0.34, Math.PI * 1.6, -1]];
+    for (const [lx, ph, bend] of legs) {
+      const sw = run ? Math.sin(gal + ph) : 0, lift = run ? Math.max(0, Math.cos(gal + ph)) : 0;
+      limb(lx * hw, -hh * 0.55 - bob, lx * hw + sw * u * 0.45, -lift * u * 0.22, hh * 0.3, hh * 0.32, bend, legTh, dark);
+    }
+    // body, neck, head, mane, tail
+    capsule(-hw * 0.36, -hh * 0.66 - bob, hw * 0.3, -hh * 0.7 - bob, hh * 0.4, coat);
+    capsule(hw * 0.28, -hh * 0.76 - bob, hw * 0.5, -hh * 1.08 - bob, u * 0.24, coat);
+    capsule(hw * 0.5, -hh * 1.08 - bob, hw * 0.7, -hh * 0.96 - bob, u * 0.17, coat);
+    ctx.fillStyle = dark; ctx.beginPath(); ctx.moveTo(hw * 0.5, -hh * 1.14 - bob); ctx.lineTo(hw * 0.53, -hh * 1.3 - bob); ctx.lineTo(hw * 0.57, -hh * 1.12 - bob); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = dark; ctx.lineWidth = Math.max(2, u * 0.1); ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(hw * 0.24, -hh * 0.82 - bob); ctx.quadraticCurveTo(hw * 0.36, -hh * 1.0 - bob, hw * 0.48, -hh * 1.12 - bob); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-hw * 0.46, -hh * 0.72 - bob); ctx.quadraticCurveTo(-hw * 0.62, -hh * (0.5 + Math.sin(gal * 0.5) * 0.08) - bob, -hw * 0.6, -hh * 0.3 - bob); ctx.stroke();
+    ctx.fillStyle = flash ? '#ffffff' : '#ffb347'; ctx.fillRect(hw * 0.56, -hh * 1.06 - bob, Math.max(1.5, u * 0.06), Math.max(1.5, u * 0.05));
+    // saddle cloth in her blue
+    ctx.fillStyle = pr.hit > 0 ? '#ffffff' : '#7a93b8'; roundRect(-hw * 0.18, -hh * 0.9 - bob, hw * 0.34, hh * 0.22, u * 0.08); ctx.fill();
+    // the princess, seated side-on: gown over the saddle, bodice, head, crown, lantern
+    const w = 0.55 * u, h = 1.65 * u, sy = -hh * 0.88 - bob, flinch = pr.hit > 0;
+    const dress = flinch ? '#ffffff' : '#cfe0f5', dressDark = flinch ? '#ffffff' : '#7a93b8', skin = flinch ? '#ffffff' : '#f2d2b8', hair = flinch ? '#ffffff' : '#5a3a1a';
+    ctx.fillStyle = dress; ctx.beginPath(); ctx.moveTo(-w * 0.2, sy - h * 0.42); ctx.lineTo(w * 0.28, sy - h * 0.42); ctx.lineTo(w * 0.55, sy + h * 0.05); ctx.lineTo(w * 0.1, sy + h * 0.18); ctx.lineTo(-w * 0.45, sy + h * 0.12); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = dressDark; roundRect(-w * 0.2, sy - h * 0.58, w * 0.44, h * 0.18, w * 0.08); ctx.fill();
+    ctx.strokeStyle = skin; ctx.lineWidth = Math.max(2, w * 0.14); ctx.beginPath(); ctx.moveTo(w * 0.22, sy - h * 0.52); ctx.lineTo(w * 0.52, sy - h * 0.42); ctx.stroke();
+    ctx.fillStyle = skin; ctx.beginPath(); ctx.arc(w * 0.04, sy - h * 0.72, w * 0.24, 0, 6.28); ctx.fill();
+    ctx.fillStyle = hair; ctx.beginPath(); ctx.arc(w * 0.04, sy - h * 0.76, w * 0.26, Math.PI, 0); ctx.fill(); ctx.fillRect(-w * 0.22, sy - h * 0.76, w * 0.12, h * 0.26);
+    ctx.fillStyle = '#f0c052'; for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.moveTo(w * 0.04 + i * w * 0.1 - w * 0.06, sy - h * 0.84); ctx.lineTo(w * 0.04 + i * w * 0.1, sy - h * 0.96); ctx.lineTo(w * 0.04 + i * w * 0.1 + w * 0.06, sy - h * 0.84); ctx.closePath(); ctx.fill(); }
+    const lx = w * 0.56, ly = sy - h * 0.3 + Math.sin(pr.lantern * 3) * h * 0.02, fl = 0.85 + Math.sin(pr.lantern * 9) * 0.08;
+    ctx.strokeStyle = '#3a2a1a'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(w * 0.52, sy - h * 0.42); ctx.lineTo(lx, ly - h * 0.08); ctx.stroke();
+    ctx.fillStyle = '#2a1f16'; ctx.fillRect(lx - w * 0.1, ly - h * 0.08, w * 0.2, h * 0.14);
+    ctx.fillStyle = '#ffd37a'; ctx.fillRect(lx - w * 0.07, ly - h * 0.06, w * 0.14, h * 0.1);
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    const lg = ctx.createRadialGradient(lx, ly, 1, lx, ly, w * 1.4 * fl); lg.addColorStop(0, 'rgba(255,210,120,.6)'); lg.addColorStop(1, 'rgba(255,150,50,0)');
+    ctx.fillStyle = lg; ctx.beginPath(); ctx.arc(lx, ly, w * 1.4 * fl, 0, 6.28); ctx.fill(); ctx.restore();
+    ctx.restore();
+    // hearts for her, pips for the horse
+    const w2 = 0.55 * u, hy2 = p.sy - hh * 0.9 - 1.65 * u * 1.0;
+    for (let i = 0; i < PRINCESS_HP; i++) { ctx.fillStyle = i < pr.hp ? '#e8647e' : 'rgba(0,0,0,.4)'; const hx = p.sx - w2 * 0.5 + i * w2 * 0.5; ctx.beginPath(); ctx.arc(hx - w2 * 0.08, hy2, w2 * 0.1, 0, 6.28); ctx.arc(hx + w2 * 0.08, hy2, w2 * 0.1, 0, 6.28); ctx.fill(); ctx.beginPath(); ctx.moveTo(hx - w2 * 0.18, hy2 + w2 * 0.02); ctx.lineTo(hx, hy2 + w2 * 0.22); ctx.lineTo(hx + w2 * 0.18, hy2 + w2 * 0.02); ctx.closePath(); ctx.fill(); }
+    for (let i = 0; i < HORSE_HP; i++) { ctx.fillStyle = i < pr.horse ? '#c9a76a' : 'rgba(0,0,0,.4)'; ctx.fillRect(p.sx - w2 * 0.55 + i * w2 * 0.4, hy2 + w2 * 0.34, w2 * 0.3, Math.max(2, u * 0.05)); }
   }
 
   // ---- Caravan: looking back down the road from the wagon's tailgate ----
@@ -3106,7 +3639,7 @@
     ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
   }
   // Which way the body is turned (-1 left .. +1 right): they drift toward the gate, so a wolf on the left is turned right.
-  function facing(en) { if (en.phase === 'bank') return en.runDir; return Math.max(-1, Math.min(1, -en.x / 6 + en.veer * 0.25)); }
+  function facing(en) { if (en.b != null && en.runDir) return en.runDir; return Math.max(-1, Math.min(1, -en.x / 6 + en.veer * 0.25)); }
 
   function drawZombieBody(en, w, h, skin, cloth, p) {
     const face = facing(en), m = en.dying ? 0 : Math.min(1.4, en.speedMul);
@@ -3610,7 +4143,7 @@
 
   // ---------- UI / flow ----------
   function updateHP() {
-    if (isEscort() && state.princess) {
+    if (hasPrincess()) {
       hpNumEl.textContent = state.princess.hp;
       hpBar.style.width = (Math.max(0, state.princess.hp) / PRINCESS_HP * 100) + '%';
       hpEl.classList.toggle('low', state.princess.hp <= 1);
@@ -3634,7 +4167,7 @@
     if (level === 4 || level === 5) enterCamp(level);
     if (level === 7) enterEscort();
     if (level === 8) enterCaravan();
-    if (level === 9) state.level = 9;
+    if (level === 9) enterGorge();
     if (level === 6) state.level = 6;
     scoreEl.textContent = '0'; updateHP(); updateBuffs();
     startScr.classList.add('hidden'); overScr.classList.add('hidden'); hud.style.display = 'block';
@@ -3647,11 +4180,11 @@
     if (state.score > best) { best = state.score; try { localStorage.setItem('rampart-best', String(best)); } catch (e) {} }
     document.getElementById('overScore').textContent = state.score;
     lastLevel = state.level;
-    const names = { 1: 'the field', 2: 'the forest', 4: 'the camp', 5: 'the raid', 6: 'the citadel', 7: 'the escort', 8: 'the caravan', 9: 'the crossing' };
+    const names = { 1: 'the field', 2: 'the forest', 4: 'the camp', 5: 'the raid', 6: 'the citadel', 7: 'the escort', 8: 'the caravan', 9: 'the gorge' };
     document.getElementById('againBtn').textContent = state.level === 1 ? 'Hold the wall again' : 'Replay ' + names[state.level];
     document.getElementById('switchBtn').textContent = 'Choose a stage';
-    document.getElementById('overTitle').textContent = state.level === 8 ? 'The wagon went down' : state.level === 7 ? (state.princess && state.princess.hp <= 0 ? 'The princess fell' : 'The princess was taken') : state.level === 6 ? 'The wall is burning' : (state.level === 1 ? 'The dead are over the wall' : 'The pack is over the wall');
-    document.getElementById('overWave').textContent = 'Survived through wave ' + state.wave + ' in ' + names[state.level];
+    document.getElementById('overTitle').textContent = state.level === 9 ? (state.gorge && state.gorge.fail ? state.gorge.fail : (state.princess && state.princess.hp <= 0 ? 'The princess fell' : 'The princess was taken')) : state.level === 8 ? 'The wagon went down' : state.level === 7 ? (state.princess && state.princess.hp <= 0 ? 'The princess fell' : 'The princess was taken') : state.level === 6 ? 'The wall is burning' : (state.level === 1 ? 'The dead are over the wall' : 'The pack is over the wall');
+    document.getElementById('overWave').textContent = state.level === 9 ? 'Reached section ' + Math.min(GORGE_SECTIONS, state.wave) + ' of ' + GORGE_SECTIONS : 'Survived through wave ' + state.wave + ' in ' + names[state.level];
     document.getElementById('overBest').textContent = 'Best: ' + best;
     hud.style.display = 'none'; overScr.classList.remove('hidden');
   }
