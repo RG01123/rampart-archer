@@ -252,7 +252,8 @@
   // The Gorge: three bridges stacked in depth; the view sits high on a tower, so the eye is raised
   const GORGE_SECTIONS = 5, SECTION_LEN = 70, SPAN_LEN = 10, GORGE_LEAD = 40, GORGE_EYE = 4.4;
   const BRIDGES = [{ z: 8, y: 0 }, { z: 13.5, y: 2.0 }, { z: 20, y: 4.0 }];
-  const DECK_D = 1.4, BRIDGE_FROM = [1, 2, 3];   // the section each bridge first appears in
+  const DECK_D = 2.2, PARAPET = 0.5, BRIDGE_FROM = [1, 2, 3];
+  const deckZ = b => BRIDGES[b].z + DECK_D * 0.5;   // where things stand: the middle of the road   // the section each bridge first appears in
   const HORSE_HP = 5, RIDE_SPEED = 2.6, WALK_SPEED = 1.0, GORGE_LOST = 22;
   const GORGE_NAMES = ['The gorge mouth', 'The aqueduct', 'The falls', 'The burning town', 'The castle road'];
   const eyeY = () => EYE_H + (isGorge() ? GORGE_EYE : 0);
@@ -622,7 +623,7 @@
       const B = BRIDGES[b], dir = Math.random() < 0.6 ? 1 : -1;
       let ax = gAbs(pr.x) - dir * (visHalf(B.z) + 4 + Math.random() * 6);
       const first = g.spans.find(sp => sp.b === b); ax = Math.max(first.ax0 + 1, Math.min(GORGE_SECTIONS * SECTION_LEN + 12, ax));
-      const en = makeEnemy(type, gRel(ax), B.z); en.baseY = B.y; en.b = b; en.runDir = dir; en.biteT = 0;
+      const en = makeEnemy(type, gRel(ax), deckZ(b)); en.baseY = B.y; en.b = b; en.runDir = dir; en.biteT = 0;
       en.w *= 0.88; en.h *= 0.88;   // perspective does the rest: far bridges are small and hard
       if (ENEMY_TYPES[type].howl) { for (const o of state.enemies) if (!o.dying) o.rally = 4; showBanner('A howl across the gorge', 1400); SFX.howl(en.x, B.z); }
       state.enemies.push(en); return;
@@ -1274,7 +1275,7 @@
         for (const gt of g.gates) if (gt.b === en.b && gt.down) { const gx = gRel(gt.ax); if ((en.x - gx) * (nx - gx) <= 0 && Math.abs(nx - gx) < 2) nx = gx - dir * 0.6; }
         if (!deckOk(en.b, gAbs(nx))) { nx = en.x; en.pauseT = Math.max(en.pauseT, 0.4); }
         en.x = nx;
-        if (dsc && Math.abs(en.x - gRel(dsc.d.ax)) < 0.45) { en.descend = 0.001; en.dFrom = BRIDGES[en.b]; en.dTo = BRIDGES[en.b - 1]; }
+        if (dsc && Math.abs(en.x - gRel(dsc.d.ax)) < 0.45) { en.descend = 0.001; en.dFrom = { y: BRIDGES[en.b].y, z: deckZ(en.b) }; en.dTo = { y: BRIDGES[en.b - 1].y, z: deckZ(en.b - 1) }; }
         for (const o of g.oil) if (o.b === en.b && o.t > 0 && gAbs(en.x) > o.ax0 && gAbs(en.x) < o.ax1) ignite(en);
         if (g.carcass && g.carcass.burning > 0 && en.b === 0 && Math.abs(en.x - g.carcass.x) < 1.2) ignite(en);
         continue;
@@ -2033,7 +2034,7 @@
     if (s.level === 7 && s.princess) items.push({ z: s.princess.z, kind: 'princess', o: s.princess });
     if (s.level === 9 && s.gorge) {
       const g = s.gorge;
-      for (const sp of g.spans) { const B = BRIDGES[sp.b]; sp.x = gRel((sp.ax0 + sp.ax1) / 2); sp.y = B.y; if (Math.abs(sp.x) < visHalf(B.z) * 1.5 + SPAN_LEN + yawReach(B.z)) items.push({ z: B.z + 0.3, kind: 'span', o: sp }); }
+      for (const sp of g.spans) { const B = BRIDGES[sp.b]; sp.x = gRel((sp.ax0 + sp.ax1) / 2); sp.y = B.y; if (Math.abs(sp.x) < visHalf(B.z) * 1.5 + SPAN_LEN + yawReach(B.z)) { items.push({ z: B.z + DECK_D + 0.6, kind: 'span', o: sp }); if (!sp.down) items.push({ z: B.z - 0.05, kind: 'parapet', o: sp }); } }
       for (const d of g.descents) { d.x = gRel(d.ax); d.y = BRIDGES[d.b].y; if (Math.abs(d.x) < 60 + yawReach(20)) items.push({ z: (BRIDGES[d.b].z + BRIDGES[d.b - 1].z) / 2, kind: 'descent', o: d }); }
       for (const gt of g.gates) { gt.x = gRel(gt.ax); gt.y = BRIDGES[gt.b].y; if (Math.abs(gt.x) < 60 + yawReach(20)) items.push({ z: BRIDGES[gt.b].z - 0.15, kind: 'gate', o: gt }); }
       for (const c of g.cauldrons) { c.x = gRel(c.ax); c.y = BRIDGES[c.b].y + 2; if (Math.abs(c.x) < 60 + yawReach(20)) items.push({ z: BRIDGES[c.b].z + DECK_D + 0.2, kind: 'cauldron', o: c }); }
@@ -2069,7 +2070,8 @@
       else if (it.kind === 'balloon') drawBalloon(it.o);
       else if (it.kind === 'princess') drawPrincess(it.o);
       else if (it.kind === 'scenery') drawScenery(it.o);
-      else if (it.kind === 'span') drawSpan(it.o);
+      else if (it.kind === 'span') drawSpan(it.o, false);
+      else if (it.kind === 'parapet') drawSpan(it.o, true);
       else if (it.kind === 'descent') drawDescent(it.o);
       else if (it.kind === 'gate') drawGate(it.o);
       else if (it.kind === 'cauldron') drawCauldron(it.o);
@@ -2685,7 +2687,7 @@
     for (let ax = -60; ax < END + 80; ax += 44 + Math.random() * 16) g.crags.push({ ax, z: 26, w: 12 + Math.random() * 9, h: 7.5 + Math.random() * 5, seed: Math.random() * 9 });
     for (let i = 0; i < 7; i++) g.birds.push({ x: Math.random(), y: 0.12 + Math.random() * 0.25, t: Math.random() * 6, s: 0.6 + Math.random() * 0.6 });
     g.scroll = 3.5;
-    state.princess = { x: -0.5, z: BRIDGES[0].z, hp: PRINCESS_HP, grabbedBy: null, hit: 0, bob: 0, safe: false, restT: 0, lantern: 0, mounted: true, horse: HORSE_HP, horseHit: 0, rear: 0, waiting: false, gallop: 0 };
+    state.princess = { x: -0.5, z: deckZ(0), hp: PRINCESS_HP, grabbedBy: null, hit: 0, bob: 0, safe: false, restT: 0, lantern: 0, mounted: true, horse: HORSE_HP, horseHit: 0, rear: 0, waiting: false, gallop: 0 };
   }
   const gAbs = x => x + state.gorge.scroll;
   const gRel = ax => ax - state.gorge.scroll;
@@ -2819,7 +2821,7 @@
     const cl = o => o.map(x => Object.assign({}, x));
     g.spans = cl(cp.spans); g.gates = cl(cp.gates); g.cauldrons = cl(cp.cauldrons); g.kegs = cl(cp.kegs); g.oil = []; g.carcass = null; g.finished = false; g.fail = ''; g.spawnT = 2.5;
     g.scroll = (cp.wave - 1) * SECTION_LEN + 2.5; g.theme = Math.min(GORGE_SECTIONS - 1, cp.wave - 1); g.prevTheme = -1; g.blend = 1;
-    s.princess = { x: -0.5, z: BRIDGES[0].z, hp: PRINCESS_HP, grabbedBy: null, hit: 0, bob: 0, safe: false, restT: 0, lantern: 0, mounted: true, horse: HORSE_HP, horseHit: 0, rear: 0, waiting: false, gallop: 0 };
+    s.princess = { x: -0.5, z: deckZ(0), hp: PRINCESS_HP, grabbedBy: null, hit: 0, bob: 0, safe: false, restT: 0, lantern: 0, mounted: true, horse: HORSE_HP, horseHit: 0, rear: 0, waiting: false, gallop: 0 };
     scoreEl.textContent = s.score; updateHP(); updateBuffs(); updateFireBtn(); updateAtBtn();
     waveEl.textContent = 'Section ' + s.wave + ' / ' + GORGE_SECTIONS;
     s.running = true; paused = false; overScr.classList.add('hidden'); hud.style.display = 'block';
@@ -3053,7 +3055,25 @@
     const r = sn > 0 ? [Math.max(x0, xb), x1] : [x0, Math.min(x1, xb)];
     return r[1] - r[0] > 0.3 ? r : null;
   }
-  function drawSpan(sp) {
+  function drawNearParapet(sp, x0, x1, full0, y, z, top, face, th) {
+    const P = PARAPET, PW = 0.3, a = project(x0, y, z), b = project(x1, y, z);
+    const quad = (p1, p2, p3, p4, col) => { ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(p1.sx, p1.sy); ctx.lineTo(p2.sx, p2.sy); ctx.lineTo(p3.sx, p3.sy); ctx.lineTo(p4.sx, p4.sy); ctx.closePath(); ctx.fill(); };
+    // near parapet: outer face, top, and merlons, with the lit lip
+    const a2 = project(x0, y + P, z), b2 = project(x1, y + P, z);
+    const pf = ctx.createLinearGradient(0, a2.sy, 0, a.sy); pf.addColorStop(0, mix(face, '#fff', 0.08)); pf.addColorStop(1, face);
+    quad(a, a2, b2, b, pf);
+    ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.lineWidth = Math.max(0.8, a.s * 0.015);
+    for (let mx = x0 + 0.55; mx < x1; mx += 1.1) { const j0 = project(mx, y + 0.05, z), j1 = project(mx, y + P - 0.05, z); ctx.beginPath(); ctx.moveTo(j0.sx, j0.sy); ctx.lineTo(j1.sx, j1.sy); ctx.stroke(); }
+    { const l0 = project(x0, y + P * 0.5, z), l1 = project(x1, y + P * 0.5, z); ctx.beginPath(); ctx.moveTo(l0.sx, l0.sy); ctx.lineTo(l1.sx, l1.sy); ctx.stroke(); }
+    quad(a2, project(x0, y + P, z + PW), project(x1, y + P, z + PW), b2, mix(top, '#fff', 0.12));
+    ctx.strokeStyle = th.lip; ctx.lineWidth = Math.max(1.2, a.s * 0.05); ctx.beginPath(); ctx.moveTo(a2.sx, a2.sy); ctx.lineTo(b2.sx, b2.sy); ctx.stroke();
+    for (let mx = x0 + 0.5; mx < x1 - 0.3; mx += 1.9) {
+      const m0 = project(mx, y + P, z), m1 = project(mx + 0.6, y + P + 0.28, z), mt = project(mx, y + P + 0.28, z + PW), mt1 = project(mx + 0.6, y + P + 0.28, z + PW);
+      ctx.fillStyle = face; ctx.fillRect(m0.sx, m1.sy, m1.sx - m0.sx, m0.sy - m1.sy + 1);
+      ctx.fillStyle = mix(top, '#fff', 0.12); ctx.beginPath(); ctx.moveTo(m0.sx, m1.sy); ctx.lineTo(mt.sx, mt.sy); ctx.lineTo(mt1.sx, mt1.sy); ctx.lineTo(m1.sx, m1.sy); ctx.closePath(); ctx.fill();
+    }
+  }
+  function drawSpan(sp, nearOnly) {
     const B = BRIDGES[sp.b], th = gorgeTheme();
     const fr = frontRange(gRel(sp.ax0), gRel(sp.ax1), B.z); if (!fr) return;
     const full0 = gRel(sp.ax0), x0 = fr[0], x1 = fr[1], y = B.y, z = B.z, depth = sp.b / 2;
@@ -3061,6 +3081,7 @@
     const r = srand(sp.seed * 9 + sp.b);
     const quad = (p1, p2, p3, p4, col) => { ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(p1.sx, p1.sy); ctx.lineTo(p2.sx, p2.sy); ctx.lineTo(p3.sx, p3.sy); ctx.lineTo(p4.sx, p4.sy); ctx.closePath(); ctx.fill(); };
     const ht = 2.4;
+    if (nearOnly) { drawNearParapet(sp, x0, x1, full0, y, z, top, face, th); return; }
     if (sp.down) {
       // broken stubs at each end, a pier under each
       for (const [sx0, sx1] of [[x0, x0 + 1.2], [x1 - 1.2, x1]]) { if (sx1 - sx0 < 0.5) continue;
@@ -3071,16 +3092,31 @@
       pierAt(sp.ax0, sp.b, face); pierAt(sp.ax1, sp.b, face);
       return;
     }
-    // deck, far parapet, near parapet
+    // ---- the deck: a flagstone road seen from above, between two parapets ----
+    const P = PARAPET, PW = 0.3;
     const a = project(x0, y, z), b = project(x1, y, z), c = project(x1, y, z + DECK_D), d = project(x0, y, z + DECK_D);
-    quad(a, b, c, d, top);
-    quad(d, project(x0, y + 0.45, z + DECK_D), project(x1, y + 0.45, z + DECK_D), c, mix(top, '#000', 0.3));
-    const a2 = project(x0, y + 0.45, z), b2 = project(x1, y + 0.45, z);
-    quad(a, a2, b2, b, face);
-    quad(a2, project(x0, y + 0.45, z + 0.3), project(x1, y + 0.45, z + 0.3), b2, mix(top, '#fff', 0.1));
-    ctx.strokeStyle = th.lip; ctx.lineWidth = Math.max(1.2, a.s * 0.05); ctx.beginPath(); ctx.moveTo(a2.sx, a2.sy); ctx.lineTo(b2.sx, b2.sy); ctx.stroke();
-    ctx.fillStyle = face;
-    for (let mx = x0 + 0.3; mx < x1 - 0.3; mx += 1.25) { const m0 = project(mx, y + 0.45, z), m1 = project(mx + 0.6, y + 0.8, z); ctx.fillRect(m0.sx, m1.sy, m1.sx - m0.sx, m0.sy - m1.sy + 1); }
+    // road surface: lit toward the near edge, darker against the far parapet
+    const road = ctx.createLinearGradient(0, d.sy, 0, a.sy); road.addColorStop(0, mix(top, '#000', 0.35)); road.addColorStop(0.5, top); road.addColorStop(1, mix(top, '#fff', 0.06));
+    quad(a, b, c, d, road);
+    // flagstone joints: across the road every metre or so, two long seams along it
+    ctx.strokeStyle = 'rgba(0,0,0,.28)'; ctx.lineWidth = Math.max(0.8, a.s * 0.018);
+    for (let jx = x0 + 0.5; jx < x1; jx += 1.1) { const j0 = project(jx, y, z + 0.08), j1 = project(jx + (tri(jx * 0.37) - 0.5) * 0.3, y, z + DECK_D - 0.08); ctx.beginPath(); ctx.moveTo(j0.sx, j0.sy); ctx.lineTo(j1.sx, j1.sy); ctx.stroke(); }
+    for (const zz of [DECK_D * 0.36, DECK_D * 0.7]) { const l0 = project(x0, y, z + zz), l1 = project(x1, y, z + zz); ctx.beginPath(); ctx.moveTo(l0.sx, l0.sy); ctx.lineTo(l1.sx, l1.sy); ctx.stroke(); }
+    // a worn track down the middle where the wheels and hooves go
+    const w0 = project(x0, y, z + DECK_D * 0.38), w1 = project(x1, y, z + DECK_D * 0.38), w2 = project(x1, y, z + DECK_D * 0.68), w3 = project(x0, y, z + DECK_D * 0.68);
+    quad(w0, w1, w2, w3, 'rgba(255,240,220,.05)');
+    // shadow pooled along the foot of the far parapet, and the near parapet's shadow across the road
+    const sh0 = project(x0, y, z + DECK_D), sh1 = project(x1, y, z + DECK_D), sh2 = project(x1, y, z + DECK_D * 0.72), sh3 = project(x0, y, z + DECK_D * 0.72);
+    const shg = ctx.createLinearGradient(0, sh0.sy, 0, sh2.sy); shg.addColorStop(0, 'rgba(0,0,0,.4)'); shg.addColorStop(1, 'rgba(0,0,0,0)');
+    quad(sh0, sh1, sh2, sh3, shg);
+    const ns0 = project(x0, y, z), ns1 = project(x1, y, z), ns2 = project(x1, y, z + 0.45), ns3 = project(x0, y, z + 0.45);
+    const nsg = ctx.createLinearGradient(0, ns0.sy, 0, ns2.sy); nsg.addColorStop(0, 'rgba(0,0,0,.3)'); nsg.addColorStop(1, 'rgba(0,0,0,0)');
+    quad(ns0, ns1, ns2, ns3, nsg);
+    // far parapet: its inner face, and its top edge catching the light
+    quad(d, project(x0, y + P, z + DECK_D), project(x1, y + P, z + DECK_D), c, mix(top, '#000', 0.42));
+    quad(project(x0, y + P, z + DECK_D), project(x0, y + P, z + DECK_D + PW), project(x1, y + P, z + DECK_D + PW), project(x1, y + P, z + DECK_D), mix(top, '#fff', 0.08));
+    ctx.fillStyle = mix(top, '#000', 0.42);
+    for (let mx = x0 + 0.5; mx < x1 - 0.3; mx += 1.9) { const m0 = project(mx, y + P, z + DECK_D), m1 = project(mx + 0.6, y + P + 0.28, z + DECK_D); ctx.fillRect(m0.sx, m1.sy, m1.sx - m0.sx, m0.sy - m1.sy + 1); }
     // the body of the viaduct under the deck: three open arches you see the gorge through
     const g0 = project(x0, y - ht, z), g1 = project(x1, y - ht, z);
     const gr = ctx.createLinearGradient(0, a.sy, 0, g0.sy); gr.addColorStop(0, face); gr.addColorStop(1, dark);
