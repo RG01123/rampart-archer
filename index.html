@@ -629,8 +629,8 @@
       const ax = piers.length ? piers[Math.floor(Math.random() * piers.length)] : Math.max(first.ax0 + SPAN_LEN, Math.round((pax - visHalf(B.z) - 6) / SPAN_LEN) * SPAN_LEN);
       const side = Math.random() < 0.5 ? -1 : 1;
       const depth = b === 0 ? 7.5 : b === 1 ? 5 : 4;   // how far below the deck the climb starts (what the view can see of the pier)
-      const en = makeEnemy(type, gRel(ax) + side * 0.55, B.z - 0.1); en.baseY = B.y - depth; en.b = b; en.runDir = pr.x > gRel(ax) ? 1 : -1; en.biteT = 0;
-      en.climb = 0.001; en.climbSide = side; en.climbDepth = depth; en.climbRate = (type === 'scout' ? 0.36 : type === 'alpha' ? 0.2 : 0.27) * (0.85 + Math.random() * 0.3); en.pierAx = ax;
+      const en = makeEnemy(type, gRel(ax) + side * 0.12, B.z - 0.1); en.baseY = B.y - depth; en.b = b; en.runDir = pr.x > gRel(ax) ? 1 : -1; en.biteT = 0;
+      en.climb = 0.001; en.climbSide = side; en.climbDepth = depth; en.climbRate = (type === 'scout' ? 0.55 : type === 'alpha' ? 0.32 : 0.42) * (0.85 + Math.random() * 0.3); en.pierAx = ax;
       en.w *= 0.88; en.h *= 0.88;   // perspective does the rest: far bridges are small and hard
       if (ENEMY_TYPES[type].howl) { for (const o of state.enemies) if (!o.dying) o.rally = 4; showBanner('A howl across the gorge', 1400); SFX.howl(en.x, B.z); }
       state.enemies.push(en); return;
@@ -1271,9 +1271,9 @@
           const B = BRIDGES[en.b];
           en.climb = Math.min(1, en.climb + en.climbRate * dt * (en.pauseT > 0 ? 0.25 : 1));
           const k = en.climb;
-          if (k < 0.86) { en.baseY = B.y - en.climbDepth + (en.climbDepth + PARAPET + 0.3) * (k / 0.86); en.z = B.z - 0.1; en.x = gRel(en.pierAx) + en.climbSide * 0.55; }
-          else { const q = (k - 0.86) / 0.14; en.baseY = B.y + (PARAPET + 0.3) * (1 - q); en.z = B.z - 0.1 + (deckZ(en.b) - B.z + 0.1) * q; en.x = gRel(en.pierAx) + en.climbSide * (0.55 + q * 0.6); }
-          en.bob += dt * 7;
+          if (k < 0.86) { en.baseY = B.y - en.climbDepth + (en.climbDepth + PARAPET + 0.3) * (k / 0.86); en.z = B.z - 0.1; en.x = gRel(en.pierAx) + en.climbSide * 0.12; if (Math.random() < dt * 6) s.particles.push({ x: en.x + (Math.random() - 0.5) * en.w, y: en.baseY + Math.random() * en.h, z: en.z - 0.1, vx: (Math.random() - 0.5) * 0.6, vy: -0.5, t: 0, life: 0.5, color: 'rgba(160,150,140,.5)', r: 0.03, dust: true, flame: true }); }
+          else { const q = (k - 0.86) / 0.14; en.baseY = B.y + (PARAPET + 0.3) * (1 - q); en.z = B.z - 0.1 + (deckZ(en.b) - B.z + 0.1) * q; en.x = gRel(en.pierAx) + en.climbSide * (0.12 + q * 0.9); }
+          en.bob += dt * 5.5;
           if (en.climb >= 1) { en.climb = 1; en.baseY = B.y; en.z = deckZ(en.b); }
           continue;
         }
@@ -2062,6 +2062,7 @@
       items.push({ z: 16.8, kind: 'mist', o: { z: 16.8, a: 0.09, x: camX, y: 0 } });
       items.push({ z: 24, kind: 'mist', o: { z: 24, a: 0.14, x: camX, y: 0 } });
       if (g.carcass) items.push({ z: g.carcass.z + 0.05, kind: 'carcass', o: g.carcass });
+      for (const key in g.swarm) for (const c of g.swarm[key]) { c.x = gRel(c.ax) + c.off; items.push({ z: BRIDGES[c.b].z - 0.12, kind: 'swarmer', o: c }); }
       if (s.princess) items.push({ z: s.princess.z, kind: 'rider', o: s.princess });
     }
     if (s.level === 8) for (const o of s.scenery) items.push({ z: o.z, kind: 'scenery', o });
@@ -2097,6 +2098,7 @@
       else if (it.kind === 'kegs') drawKegs(it.o);
       else if (it.kind === 'mist') drawMist(it.o);
       else if (it.kind === 'carcass') drawCarcass(it.o);
+      else if (it.kind === 'swarmer') drawSwarmer(it.o);
       else if (it.kind === 'rider') drawRider(it.o);
       else if (it.kind === 'barrel') drawBarrel(it.o);
       else if (it.kind === 'blast') drawBlast(it.o);
@@ -2702,7 +2704,7 @@
     }
     // the last way down comes out right at the castle gate
     for (let b = 1; b < 3; b++) g.descents.push({ b, ax: END - 6, x: 0, y: 0 });
-    g.crags = [];
+    g.crags = []; g.swarm = {};
     for (let ax = -60; ax < END + 80; ax += 44 + Math.random() * 16) g.crags.push({ ax, z: 26, w: 12 + Math.random() * 9, h: 7.5 + Math.random() * 5, seed: Math.random() * 9 });
     for (let i = 0; i < 7; i++) g.birds.push({ x: Math.random(), y: 0.12 + Math.random() * 0.25, t: Math.random() * 6, s: 0.6 + Math.random() * 0.6 });
     g.scroll = 3.5;
@@ -2784,11 +2786,11 @@
     // a steady trickle of wolves, capped by how many are alive, so there is always something to shoot
     if (!g.finished) {
       g.spawnT = (g.spawnT || 0) - dt;
-      const alive = s.enemies.filter(e => !e.dying).length, cap = 2 + s.wave + (s.wave >= 4 ? 1 : 0);
+      const alive = s.enemies.filter(e => !e.dying && !(e.climb > 0 && e.climb < 1)).length, cap = 2 + s.wave + (s.wave >= 4 ? 1 : 0);
       if (g.spawnT <= 0 && alive < cap) {
         const n = s.wave, r = Math.random();
         spawnEnemy(n >= 2 && r < 0.03 + n * 0.03 ? 'alpha' : r < 0.42 + n * 0.02 ? 'stalker' : 'scout');
-        g.spawnT = Math.max(0.9, 3.2 - n * 0.38) * (0.7 + Math.random() * 0.6);
+        g.spawnT = Math.max(0.8, 2.8 - n * 0.34) * (0.7 + Math.random() * 0.6);
       }
     }
     // stragglers that fall far behind her lose the trail
@@ -2824,6 +2826,19 @@
     }
     // the view follows her
     if (!ride) { const sv = Math.max(-7, Math.min(7, (pr.x + 0.5) * 3)); shiftWorld(-sv * dt); g.scroll += sv * dt; }
+    // the swarm on the piers: cosmetic climbers that never make the top, kept for every pier in view
+    for (const sp of g.spans) {
+      if (sp.down) continue;
+      const B = BRIDGES[sp.b], rx = gRel(sp.ax0); if (Math.abs(rx) > visHalf(B.z) * 1.4 + yawReach(B.z) + 4) continue;
+      const key = sp.b + ':' + sp.ax0; let list = g.swarm[key];
+      if (!list) { list = g.swarm[key] = []; const n = sp.b === 0 ? 2 + Math.floor(Math.random() * 2) : 1 + Math.floor(Math.random() * 2); const depth = sp.b === 0 ? 9.5 : sp.b === 1 ? 6.5 : 5.5; for (let i = 0; i < n; i++) list.push({ b: sp.b, ax: sp.ax0, off: (Math.random() - 0.5) * 0.5, y: -depth + Math.random() * (depth - 2.5), depth, rate: 0.5 + Math.random() * 0.7, t: Math.random() * 6, big: Math.random() < 0.35, fall: 0, seed: Math.random() }); }
+      for (const c of list) {
+        c.t += dt * 5;
+        if (c.fall > 0) { c.fall += dt; c.y -= (c.fall * 9) * dt; if (c.y < -c.depth - 2) { c.fall = 0; c.y = -c.depth + Math.random(); c.off = (Math.random() - 0.5) * 0.5; c.rate = 0.5 + Math.random() * 0.7; } }
+        else { c.y += c.rate * dt; if (c.y > -2.6 - c.seed * 1.2) c.fall = 0.01; }
+      }
+    }
+    for (const key in g.swarm) { const list = g.swarm[key]; if (!list.length) continue; const rx = gRel(list[0].ax), B = BRIDGES[list[0].b]; if (Math.abs(rx) > visHalf(B.z) * 1.4 + yawReach(B.z) + 12) delete g.swarm[key]; }
     // the land changes section by section
     const th = Math.max(0, Math.min(GORGE_SECTIONS - 1, Math.floor(g.scroll / SECTION_LEN)));
     if (th !== g.theme) { g.prevTheme = g.theme; g.theme = th; g.blend = 0; }
@@ -3255,6 +3270,17 @@
     }
     if (k.fuse > 0) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; const lg = ctx.createRadialGradient(q.sx, q.sy, 1, q.sx, q.sy, s * 1.1); lg.addColorStop(0, 'rgba(255,200,100,.5)'); lg.addColorStop(1, 'rgba(255,120,30,0)'); ctx.fillStyle = lg; ctx.beginPath(); ctx.arc(q.sx, q.sy, s * 1.1, 0, 6.28); ctx.fill(); ctx.restore(); }
   }
+  function drawSwarmer(c) {
+    const B = BRIDGES[c.b], p = project(c.x, B.y + c.y, B.z - 0.12);
+    if (p.behind || p.sy > H * 0.86 || p.sy < -40) return;
+    const w = (c.big ? 1.0 : 0.85) * p.s, h = (c.big ? 1.6 : 1.1) * p.s;
+    const fade = Math.max(0, Math.min(1, (c.y + c.depth) / 3.5)) * (c.fall > 0 ? Math.max(0, 1 - c.fall * 1.2) : 1);
+    if (fade <= 0.02) return;
+    ctx.save(); ctx.globalAlpha = fade * 0.9; ctx.translate(p.sx, p.sy);
+    if (c.fall > 0) ctx.rotate(c.fall * 2.2 * (c.seed < 0.5 ? -1 : 1));
+    drawClimber(w, h, '#4a3d33', '#2a211c', c.t, c.big ? '#ff7a2a' : '#ff4d2a', c.big);
+    ctx.restore();
+  }
   function drawCarcass(cs) {
     const p = project(cs.x, 0, cs.z), u = p.s;
     const dark = cs.burning > 0 ? mix('#2a1e18', '#0e0a08', 0.5) : '#2a1e18';
@@ -3280,16 +3306,51 @@
     }
     ctx.closePath();
   }
+  // A wolf pressed flat to a pier, climbing hand over hand: seen from the front, limbs spread, head up.
+  function drawClimber(w, h, fur, dark, t, eyeCol, big) {
+    const hipY = -h * 0.3, shY = -h * 0.72, sway = Math.sin(t * 0.9) * w * 0.05;
+    const cl = (x, y, up) => { ctx.fillStyle = '#d9d2c2'; for (let i = -1; i <= 1; i++) ctx.fillRect(x + i * w * 0.07 - 0.75, y - (up ? w * 0.1 : 0), 1.5, w * 0.1); };
+    // tail hanging, swinging
+    ctx.strokeStyle = dark; ctx.lineWidth = Math.max(1.5, w * 0.09); ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(sway, hipY); ctx.quadraticCurveTo(sway + Math.sin(t * 0.7) * w * 0.3, hipY + h * 0.2, sway + Math.sin(t * 0.7 + 1) * w * 0.25, hipY + h * 0.42); ctx.stroke();
+    // legs: feet braced on the stone, pushing alternately
+    const legTh = Math.max(2, w * 0.13), armTh = Math.max(2, w * 0.11);
+    for (const [sx, ph] of [[-1, 0], [1, Math.PI]]) {
+      const lift = Math.max(0, Math.sin(t + ph)) * h * 0.16;
+      const f = limb(sx * w * 0.14 + sway, hipY, sx * w * 0.42, -lift, h * 0.24, h * 0.22, -sx, legTh, sx < 0 ? dark : fur);
+      cl(f.x1, f.y1, false);
+    }
+    // torso: long, narrow, pressed to the wall; fur ridge down the spine
+    ctx.fillStyle = fur;
+    ctx.beginPath(); ctx.moveTo(-w * 0.2 + sway, hipY + h * 0.04); ctx.lineTo(-w * 0.3 + sway, shY); ctx.lineTo(w * 0.3 + sway, shY); ctx.lineTo(w * 0.2 + sway, hipY + h * 0.04); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = dark; for (let i = 0; i < 4; i++) { const y = hipY - (shY > hipY ? -1 : 1) * 0 + (shY - hipY) * (i + 0.5) / 4; ctx.beginPath(); ctx.moveTo(sway - w * 0.06, y + h * 0.03); ctx.lineTo(sway, y - h * 0.04); ctx.lineTo(sway + w * 0.06, y + h * 0.03); ctx.closePath(); ctx.fill(); }
+    if (big) { ctx.fillStyle = dark; ctx.beginPath(); ctx.moveTo(-w * 0.3 + sway, shY); ctx.lineTo(-w * 0.38 + sway, shY - h * 0.1); ctx.lineTo(-w * 0.1 + sway, shY); ctx.closePath(); ctx.fill(); ctx.beginPath(); ctx.moveTo(w * 0.3 + sway, shY); ctx.lineTo(w * 0.38 + sway, shY - h * 0.1); ctx.lineTo(w * 0.1 + sway, shY); ctx.closePath(); ctx.fill(); }
+    // arms: reaching up alternately, claws hooked into the stone above the head
+    for (const [sx, ph] of [[-1, Math.PI], [1, 0]]) {
+      const reach = Math.max(0, Math.sin(t + ph)) * h * 0.22;
+      const a = limb(sx * w * 0.26 + sway, shY + h * 0.02, sx * w * 0.5, shY - h * 0.3 - reach, h * 0.24, h * 0.24, sx, armTh, sx < 0 ? dark : fur);
+      ctx.fillStyle = sx < 0 ? dark : fur; ctx.beginPath(); ctx.arc(a.x1, a.y1, armTh * 0.7, 0, 6.28); ctx.fill();
+      cl(a.x1, a.y1 - armTh * 0.4, true);
+    }
+    // head: tipped back to look up the pier; ears, muzzle, eyes
+    const hx = sway, hy = shY - h * 0.1;
+    ctx.fillStyle = fur; ctx.beginPath(); ctx.ellipse(hx, hy, w * 0.22, h * 0.14, 0, 0, 6.28); ctx.fill();
+    ctx.fillStyle = dark; ctx.beginPath(); ctx.ellipse(hx, hy - h * 0.09, w * 0.11, h * 0.07, 0, 0, 6.28); ctx.fill();
+    ctx.fillStyle = fur;
+    ctx.beginPath(); ctx.moveTo(hx - w * 0.2, hy + h * 0.02); ctx.lineTo(hx - w * 0.3, hy + h * 0.16); ctx.lineTo(hx - w * 0.06, hy + h * 0.1); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(hx + w * 0.2, hy + h * 0.02); ctx.lineTo(hx + w * 0.3, hy + h * 0.16); ctx.lineTo(hx + w * 0.06, hy + h * 0.1); ctx.closePath(); ctx.fill();
+    drawEyes(hx - w * 0.14, hx + w * 0.04, hy - h * 0.02, Math.max(1.5, w * 0.09), Math.max(1.5, w * 0.05), eyeCol, ctx.globalAlpha);
+  }
   function drawWolfProfile(en, w, h, fur0, dark0, p) {
     let fur = fur0, dark = dark0;
+    if (en.climb > 0 && en.climb < 0.86) { drawClimber(w, h, mix(fur0, '#9a8670', 0.25), mix(dark0, '#5a4a3c', 0.25), en.bob, en.type === 'alpha' ? '#ff7a2a' : '#ff4d2a', en.type === 'alpha'); return; }
     const dir = en.runDir || 1, t = en.bob, m = en.dying ? 0 : Math.min(1.6, en.speedMul), lunge = Math.max(0, en.speedMul - 1);
     const rim = gorgeTheme().lip, alive = !en.dying;
     ctx.save();
     if (en.climb > 0 && en.climb < 1) {
-      // clinging to the pier: turned to face up it, body out to the side, claws scrabbling
-      const k = en.climb, over = k > 0.86 ? (k - 0.86) / 0.14 : 0;
-      ctx.scale(-en.climbSide, 1); ctx.rotate(-Math.PI / 2 * (1 - over * 0.8)); ctx.translate(-w * 0.1, h * 0.05);
-      fur = mix(fur, '#9a8670', 0.3); dark = mix(dark, '#5a4a3c', 0.3);
+      // over the parapet: a leap from the top of the pier onto the road
+      const over = (en.climb - 0.86) / 0.14;
+      ctx.scale(-en.climbSide, 1); ctx.rotate(-0.5 * (1 - over)); ctx.translate(0, -h * 0.3 * Math.sin(over * Math.PI));
     } else ctx.scale(dir, 1);   // everything below faces +x
     if (en.quad) {
       // ---- Scout: a lean running wolf, head low, back arched, tail streaming ----
