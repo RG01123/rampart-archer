@@ -566,6 +566,9 @@
       waveEl.textContent = 'Section ' + state.wave + ' / ' + GORGE_SECTIONS;
       state.fireAmmo += 3; state.bombAmmo += state.wave >= 3 ? 2 : 1; state.balloonAmmo = 2; state.barrelAmmo = 0; updateFireBtn();
       showBanner(state.wave === 1 ? 'Get her to the castle' : GORGE_NAMES[state.wave - 1], 2400);
+      // checkpoint: everything needed to put her back at this gatehouse if she falls
+      const cp = o => o.map(x => Object.assign({}, x));
+      g.checkpoint = { wave: state.wave, score: state.score, fire: state.fireAmmo, bomb: state.bombAmmo, spans: cp(g.spans), gates: cp(g.gates), cauldrons: cp(g.cauldrons), kegs: cp(g.kegs) };
       return;
     }
     if (state.level === 1 && state.wave === FOREST_WAVE) {
@@ -2787,11 +2790,26 @@
     for (const bd of g.birds) { bd.t += dt; bd.x -= dt * 0.012 * bd.s; if (bd.x < -0.1) { bd.x = 1.1; bd.y = 0.1 + Math.random() * 0.3; } }
     if (gorgeTheme().embers && Math.random() < dt * 10) s.particles.push({ x: (Math.random() * 2 - 1) * 12, y: Math.random() * 4, z: 6 + Math.random() * 20, vx: (Math.random() - 0.5) * 0.4, vy: 0.4 + Math.random() * 0.6, t: 0, life: 2.5 + Math.random() * 2, color: Math.random() < 0.5 ? '#ff8a2a' : '#ffb347', r: 0.04 + Math.random() * 0.04, flame: true, ember: true });
   }
+  // Back to the start of the section she fell in: the field is cleared, the structures are as they were, a fresh horse.
+  function gorgeRetry() {
+    const s = state, g = s.gorge, cp = g && g.checkpoint; if (!cp) { startGame(9); return; }
+    endRide(); camYaw = 0; camYawTarget = 0; lookDir = 0; pan = null;
+    s.enemies = []; s.arrows = []; s.particles = []; s.stuck = []; s.balloons = []; s.barrels = []; s.blasts = []; s.critters = []; s.incoming = [];
+    s.wave = cp.wave; s.score = cp.score; s.fireAmmo = cp.fire; s.bombAmmo = cp.bomb; s.balloonAmmo = 2; s.barrelAmmo = 0; s.arrowType = 'normal'; s.silver = 0; s.volley = 0; s.hp = MAX_HP; s.spawnQueue = []; s.shake = 0; s.atArmed = false; s.atCooldown = 0; s.aim = null;
+    const cl = o => o.map(x => Object.assign({}, x));
+    g.spans = cl(cp.spans); g.gates = cl(cp.gates); g.cauldrons = cl(cp.cauldrons); g.kegs = cl(cp.kegs); g.oil = []; g.carcass = null; g.finished = false; g.fail = ''; g.spawnT = 2.5;
+    g.scroll = (cp.wave - 1) * SECTION_LEN + 2.5; g.theme = Math.min(GORGE_SECTIONS - 1, cp.wave - 1); g.prevTheme = -1; g.blend = 1;
+    s.princess = { x: -0.5, z: BRIDGES[0].z, hp: PRINCESS_HP, grabbedBy: null, hit: 0, bob: 0, safe: false, restT: 0, lantern: 0, mounted: true, horse: HORSE_HP, horseHit: 0, rear: 0, waiting: false, gallop: 0 };
+    scoreEl.textContent = s.score; updateHP(); updateBuffs(); updateFireBtn(); updateAtBtn();
+    waveEl.textContent = 'Section ' + s.wave + ' / ' + GORGE_SECTIONS;
+    s.running = true; paused = false; overScr.classList.add('hidden'); hud.style.display = 'block';
+    showBanner('Section ' + s.wave + ', again', 2000);
+  }
   function gorgeWin() {
     const s = state, pr = s.princess; s.running = false; s.aim = null; endRide();
     const bonus = 600 + pr.hp * 100 + (pr.mounted ? 200 : 0); s.score += bonus; scoreEl.textContent = s.score;
     if (s.score > best) { best = s.score; try { localStorage.setItem('rampart-best', String(best)); } catch (e) {} }
-    lastLevel = 9;
+    lastLevel = 9; gorgeRetryable = false;
     document.getElementById('overTitle').textContent = 'She reached the castle';
     document.getElementById('overWave').textContent = (pr.mounted ? 'Still in the saddle' : 'On foot at the end') + '   bonus +' + bonus;
     document.getElementById('overScore').textContent = s.score;
@@ -4248,7 +4266,7 @@
     clearTimeout(bannerTimer); bannerTimer = setTimeout(() => bannerEl.style.opacity = 0, ms || 1500);
   }
   function startGame(level) {
-    endRide(); camYaw = 0; camYawTarget = 0; lookDir = 0; pan = null;
+    endRide(); camYaw = 0; camYawTarget = 0; lookDir = 0; pan = null; gorgeRetryable = false;
     state = newState(); state.running = true; paused = false; updateAtBtn();
     hud.classList.toggle('range', level === 3);
     state.level = level;
@@ -4270,7 +4288,8 @@
     document.getElementById('overScore').textContent = state.score;
     lastLevel = state.level;
     const names = { 1: 'the field', 2: 'the forest', 4: 'the camp', 5: 'the raid', 6: 'the citadel', 7: 'the escort', 8: 'the caravan', 9: 'the gorge' };
-    document.getElementById('againBtn').textContent = state.level === 1 ? 'Hold the wall again' : 'Replay ' + names[state.level];
+    gorgeRetryable = state.level === 9 && !!(state.gorge && state.gorge.checkpoint);
+    document.getElementById('againBtn').textContent = gorgeRetryable ? 'Retry section ' + Math.min(GORGE_SECTIONS, state.wave) : state.level === 1 ? 'Hold the wall again' : 'Replay ' + names[state.level];
     document.getElementById('switchBtn').textContent = 'Choose a stage';
     document.getElementById('overTitle').textContent = state.level === 9 ? (state.gorge && state.gorge.fail ? state.gorge.fail : (state.princess && state.princess.hp <= 0 ? 'The princess fell' : 'The princess was taken')) : state.level === 8 ? 'The wagon went down' : state.level === 7 ? (state.princess && state.princess.hp <= 0 ? 'The princess fell' : 'The princess was taken') : state.level === 6 ? 'The wall is burning' : (state.level === 1 ? 'The dead are over the wall' : 'The pack is over the wall');
     document.getElementById('overWave').textContent = state.level === 9 ? 'Reached section ' + Math.min(GORGE_SECTIONS, state.wave) + ' of ' + GORGE_SECTIONS : 'Survived through wave ' + state.wave + ' in ' + names[state.level];
@@ -4304,8 +4323,8 @@
     e.currentTarget.setAttribute('aria-expanded', open ? 'true' : 'false');
     if (open) setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
   });
-  let lastLevel = 1;
-  document.getElementById('againBtn').addEventListener('click', () => startGame(lastLevel));
+  let lastLevel = 1, gorgeRetryable = false;
+  document.getElementById('againBtn').addEventListener('click', () => { if (gorgeRetryable) { gorgeRetryable = false; gorgeRetry(); } else startGame(lastLevel); });
   document.getElementById('switchBtn').addEventListener('click', () => { overScr.classList.add('hidden'); state.level = lastLevel; openMenu(); document.getElementById('resumeBtn').classList.add('hidden'); });
   document.getElementById('pauseBtn').addEventListener('click', () => {
     if (!state.running) return;
