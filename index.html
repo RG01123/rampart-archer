@@ -337,14 +337,7 @@
   // ---------- Waves ----------
   function buildWave(n) {
     const q = [];
-    if (isGorge()) {
-      const scouts = 2 + n, stalkers = n, alphas = Math.floor((n - 1) / 2);
-      for (let i = 0; i < scouts; i++) q.push('scout');
-      for (let i = 0; i < stalkers; i++) q.push('stalker');
-      for (let i = 0; i < alphas; i++) q.push('alpha');
-      for (let i = q.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [q[i], q[j]] = [q[j], q[i]]; }
-      return q;
-    }
+    if (isGorge()) return q;   // the gorge spawns a steady trickle instead (see updateGorge)
     if (isCaravan()) {
       const scouts = 3 + n * 2, stalkers = 1 + n, alphas = n >= 3 ? 1 : 0;
       for (let i = 0; i < scouts; i++) q.push('scout');
@@ -569,7 +562,7 @@
       pr.waiting = false;
       if (!pr.mounted && state.wave > 1) { pr.mounted = true; pr.horse = HORSE_HP; pr.rear = 0; showBanner('A fresh horse', 1400); }
       if (state.wave > GORGE_SECTIONS) { g.finished = true; state.spawnQueue = []; waveEl.textContent = 'The gate'; showBanner('The castle gate opens', 2000); SFX.ui(); return; }
-      state.spawnQueue = buildWave(state.wave); state.spawnTimer = 2.5;
+      state.spawnQueue = []; g.spawnT = 1.5;
       waveEl.textContent = 'Section ' + state.wave + ' / ' + GORGE_SECTIONS;
       state.fireAmmo += 3; state.bombAmmo += state.wave >= 3 ? 2 : 1; state.balloonAmmo = 2; state.barrelAmmo = 0; updateFireBtn();
       showBanner(state.wave === 1 ? 'Get her to the castle' : GORGE_NAMES[state.wave - 1], 2400);
@@ -640,7 +633,7 @@
   function makeEnemy(type, ex, ez) {
     const t = ENEMY_TYPES[type];
     const baseY = 0;
-    const speedMul = (1 + (state.wave - 1) * 0.07) * (isCaravan() ? 2.1 : (isGorge() ? 0.55 : 1));
+    const speedMul = (1 + (state.wave - 1) * 0.07) * (isCaravan() ? 2.1 : (isGorge() ? 0.62 : 1));
     return ({
       type, hp: t.hp, x: ex, z: ez, baseY,
       speed: t.speed * speedMul * (0.9 + Math.random() * 0.2), w: t.w, h: t.h,
@@ -1176,7 +1169,7 @@
       }
     } else if (!s.enemies.some(en => !en.dying)) {
       if (isEscort() && s.princess && !s.princess.safe) { /* she still has to reach the gate */ }
-      else if (isGorge() && (s.gorge.finished || !s.princess.waiting)) { /* she rides on to the gatehouse first */ }
+      else if (isGorge()) { /* sections end at the gatehouse, not when the field is clear */ }
       else { s.waveClearTimer += dt; if (s.waveClearTimer > (isCaravan() ? 1.0 : 2.2)) { s.waveClearTimer = 0; startWave(); } }
     }
     if (isCaravan()) { updateCaravan(dt); if (!s.running) return; }
@@ -1944,7 +1937,8 @@
     if (s.level === 8 && s.wagon) { const wg = s.wagon; ctx.translate(Math.sin(wg.sway) * 4, Math.sin(wg.sway * 1.9) * 3 + wg.bump * 4); ctx.rotate(Math.sin(wg.sway * 0.9) * 0.01); }
 
     collectLights();
-    if (s.running && s.level !== 3) remainEl.textContent = s.spawnQueue.length + s.enemies.filter(e => !e.dying).length;
+    if (s.running && s.level === 9 && s.gorge) remainEl.textContent = (s.gorge.finished ? 0 : Math.max(0, Math.round(s.wave * SECTION_LEN - gAbs(s.princess.x)))) + ' m';
+    else if (s.running && s.level !== 3) remainEl.textContent = s.spawnQueue.length + s.enemies.filter(e => !e.dying).length;
     if (s.level === 8 && s.wagon) waveEl.textContent = Math.max(0, Math.round((ROUTE_LEN - s.wagon.dist) / 10) * 10) + ' m';
     const vyaw = viewYaw(), shifted = Math.abs(vyaw) > 1e-4;
     if (shifted) { ctx.fillStyle = s.level === 3 ? '#8fb0c4' : (s.level === 9 ? gorgeTheme().sky[0] : s.level === 6 ? '#161d2e' : (s.level === 2 ? '#0a1a24' : (s.level === 5 ? '#02040a' : (s.level === 4 ? '#070b14' : '#0d1030')))); ctx.fillRect(-20, -20, W + 40, H + 40); ctx.save(); if (s.level !== 9) ctx.translate(-Math.tan(vyaw) * focal() * 0.3, 0); }
@@ -2039,6 +2033,7 @@
         const pr = project(ox, oy, it.z);
         if (pr.behind) continue;
         if (ride && (it.kind === 'tree' || it.kind === 'fog' || it.kind === 'prop') && pr.s > focal() * 1.1) continue;   // too close to the lens
+        if (s.level === 9 && it.kind !== 'span' && pr.s > focal() * 0.8) continue;
       }
       if (it.kind === 'target') drawTarget(it.o);
       else if (it.kind === 'ledge') drawLedge(it.o);
@@ -2742,8 +2737,21 @@
       if (g.carcass && g.carcass.burning > 0 && Math.abs(g.carcass.x - pr.x) < 0.9 && Math.random() < dt * 0.6) hurtPrincess(1, 'Burned');
     }
     if (!s.running) return;
+    // a steady trickle of wolves, capped by how many are alive, so there is always something to shoot
+    if (!g.finished) {
+      g.spawnT = (g.spawnT || 0) - dt;
+      const alive = s.enemies.filter(e => !e.dying).length, cap = 2 + s.wave + (s.wave >= 4 ? 1 : 0);
+      if (g.spawnT <= 0 && alive < cap) {
+        const n = s.wave, r = Math.random();
+        spawnEnemy(n >= 2 && r < 0.03 + n * 0.03 ? 'alpha' : r < 0.42 + n * 0.02 ? 'stalker' : 'scout');
+        g.spawnT = Math.max(0.9, 3.2 - n * 0.38) * (0.7 + Math.random() * 0.6);
+      }
+    }
+    // stragglers that fall far behind her lose the trail
+    s.enemies = s.enemies.filter(e => e.dying || e.lifted || e.falling || e.x > pr.x - 40);
     // the princess
     if (pr.grabbedBy && (pr.grabbedBy.dying || pr.grabbedBy.lifted)) { pr.grabbedBy = null; floatText(pr.x, 2.2, pr.z, 'Free!'); }
+    if (pr.waiting && !pr.grabbedBy) { pr.waitT = (pr.waitT || 0) + dt; if (pr.waitT > 1.6) { pr.waitT = 0; startWave(); } }
     if (pr.grabbedBy) {
       const gr = pr.grabbedBy; pr.x -= DRAG_SPEED * dt; gr.x = pr.x - 0.6; pr.waiting = false; pr.bob += dt * 6;
       if (gAbs(pr.x) < (s.wave - 1) * SECTION_LEN - GORGE_LOST) { g.fail = 'The princess was dragged off'; gameOver(); return; }
@@ -2999,16 +3007,25 @@
     const gr = ctx.createLinearGradient(0, a.sy, 0, d.sy); gr.addColorStop(0, col); gr.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = gr; ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(c.sx, c.sy); ctx.lineTo(e.sx, e.sy); ctx.lineTo(d.sx, d.sy); ctx.closePath(); ctx.fill();
   }
+  // the part of a lateral segment at depth z that lies safely in front of the camera
+  function frontRange(x0, x1, z) {
+    const yaw = viewYaw(), sn = Math.sin(yaw), cs = Math.cos(yaw), c = ride ? ride.cam : { x: camX, z: -Z0 };
+    if (Math.abs(sn) < 1e-3) return (z - c.z) * cs > 1.5 ? [x0, x1] : null;
+    const xb = c.x + (1.5 - (z - c.z) * cs) / sn;
+    const r = sn > 0 ? [Math.max(x0, xb), x1] : [x0, Math.min(x1, xb)];
+    return r[1] - r[0] > 0.3 ? r : null;
+  }
   function drawSpan(sp) {
     const B = BRIDGES[sp.b], th = gorgeTheme();
-    const x0 = gRel(sp.ax0), x1 = gRel(sp.ax1), y = B.y, z = B.z, depth = sp.b / 2;
+    const fr = frontRange(gRel(sp.ax0), gRel(sp.ax1), B.z); if (!fr) return;
+    const full0 = gRel(sp.ax0), x0 = fr[0], x1 = fr[1], y = B.y, z = B.z, depth = sp.b / 2;
     const top = mix('#262c3a', '#3a4254', depth), face = mix('#171c2a', '#262c3e', depth), dark = mix('#0b0e18', '#171c2a', depth);
     const r = srand(sp.seed * 9 + sp.b);
     const quad = (p1, p2, p3, p4, col) => { ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(p1.sx, p1.sy); ctx.lineTo(p2.sx, p2.sy); ctx.lineTo(p3.sx, p3.sy); ctx.lineTo(p4.sx, p4.sy); ctx.closePath(); ctx.fill(); };
     const ht = 2.4;
     if (sp.down) {
       // broken stubs at each end, a pier under each
-      for (const [sx0, sx1] of [[x0, x0 + 1.2], [x1 - 1.2, x1]]) {
+      for (const [sx0, sx1] of [[x0, x0 + 1.2], [x1 - 1.2, x1]]) { if (sx1 - sx0 < 0.5) continue;
         quad(project(sx0, y, z), project(sx1, y, z), project(sx1, y, z + DECK_D), project(sx0, y, z + DECK_D), top);
         const g0 = project(sx0, y - ht, z), g1 = project(sx1, y - ht * 0.7, z), a = project(sx0, y, z), b = project(sx1, y, z);
         quad(a, b, g1, g0, face);
@@ -3031,21 +3048,22 @@
     const gr = ctx.createLinearGradient(0, a.sy, 0, g0.sy); gr.addColorStop(0, face); gr.addColorStop(1, dark);
     ctx.fillStyle = gr; ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.lineTo(g1.sx, g1.sy); ctx.lineTo(g0.sx, g0.sy); ctx.closePath();
     for (let i = 0; i < 3; i++) {
-      const cx = x0 + SPAN_LEN * (i + 0.5) / 3, hw = 1.25;
+      const cx = full0 + SPAN_LEN * (i + 0.5) / 3, hw = 1.25;
+      if (cx - hw < x0 || cx + hw > x1) continue;
       const p1 = project(cx - hw, y - ht - 0.5, z), p2 = project(cx - hw, y - 1.4, z), ap = project(cx, y - 0.5, z), p3 = project(cx + hw, y - 1.4, z), p4 = project(cx + hw, y - ht - 0.5, z);
       ctx.moveTo(p1.sx, p1.sy); ctx.lineTo(p2.sx, p2.sy); ctx.quadraticCurveTo(ap.sx, ap.sy - (p2.sy - ap.sy) * 0.55, p3.sx, p3.sy); ctx.lineTo(p4.sx, p4.sy); ctx.closePath();
     }
     ctx.fill('evenodd');
-    pierAt(sp.ax0, sp.b, face);
-    if (!spanAt(sp.b, sp.ax1)) pierAt(sp.ax1, sp.b, face);
+    if (x0 === full0) pierAt(sp.ax0, sp.b, face);
+    if (!spanAt(sp.b, sp.ax1) && x1 === gRel(sp.ax1)) pierAt(sp.ax1, sp.b, face);
     // a red pennant on some spans, a torch on the parapet at night
     if (r() < 0.4) {
-      const fx = x0 + 1 + r() * 8, q0 = project(fx - 0.35, y - 0.1, z), q1 = project(fx + 0.35, y - 0.1, z), q2 = project(fx, y - 2.6, z);
+      const fx = full0 + 1 + r() * 8; if (fx < x0 + 0.5 || fx > x1 - 0.5) r(); else { const q0 = project(fx - 0.35, y - 0.1, z), q1 = project(fx + 0.35, y - 0.1, z), q2 = project(fx, y - 2.6, z);
       ctx.fillStyle = '#9c2420'; ctx.beginPath(); ctx.moveTo(q0.sx, q0.sy); ctx.lineTo(q1.sx, q1.sy); ctx.lineTo(q2.sx, q2.sy); ctx.closePath(); ctx.fill();
-      ctx.strokeStyle = 'rgba(240,192,82,.6)'; ctx.lineWidth = Math.max(1, q0.s * 0.03); const qm = project(fx, y - 1.1, z); ctx.beginPath(); ctx.arc(qm.sx, qm.sy, Math.max(2, q0.s * 0.18), 0, 6.28); ctx.stroke();
+      ctx.strokeStyle = 'rgba(240,192,82,.6)'; ctx.lineWidth = Math.max(1, q0.s * 0.03); const qm = project(fx, y - 1.1, z); ctx.beginPath(); ctx.arc(qm.sx, qm.sy, Math.max(2, q0.s * 0.18), 0, 6.28); ctx.stroke(); }
     }
-    if (th.stars > 0.5 || th.town) {
-      const tx = x0 + 5, tq = project(tx, y + 1.2, z + 0.15), tb = project(tx, y + 0.45, z + 0.15);
+    if ((th.stars > 0.5 || th.town) && full0 + 5 > x0 && full0 + 5 < x1) {
+      const tx = full0 + 5, tq = project(tx, y + 1.2, z + 0.15), tb = project(tx, y + 0.45, z + 0.15);
       ctx.strokeStyle = '#110c0a'; ctx.lineWidth = Math.max(1.5, tq.s * 0.06); ctx.beginPath(); ctx.moveTo(tb.sx, tb.sy); ctx.lineTo(tq.sx, tq.sy); ctx.stroke();
       ctx.save(); ctx.globalCompositeOperation = 'lighter'; const lg = ctx.createRadialGradient(tq.sx, tq.sy, 1, tq.sx, tq.sy, tq.s * 1.3); lg.addColorStop(0, 'rgba(255,180,80,.45)'); lg.addColorStop(1, 'rgba(255,110,30,0)'); ctx.fillStyle = lg; ctx.beginPath(); ctx.arc(tq.sx, tq.sy, tq.s * 1.3, 0, 6.28); ctx.fill(); ctx.restore();
       ctx.fillStyle = '#ff8a2a'; ctx.beginPath(); ctx.ellipse(tq.sx, tq.sy - tq.s * 0.1, tq.s * 0.09, tq.s * 0.18, 0, 0, 6.28); ctx.fill();
@@ -3053,6 +3071,7 @@
   }
   function drawDescent(dsc) {
     const B = BRIDGES[dsc.b], L = BRIDGES[dsc.b - 1], x = gRel(dsc.ax), zc = (B.z + L.z) / 2;
+    if (relZ(x - 2, zc) < 1.5 || relZ(x + 2, zc) < 1.5) return;
     const p = (xx, yy) => project(xx, yy, zc);
     const a = p(x - 0.9, L.y - 0.2), b = p(x + 0.9, L.y - 0.2), c = p(x + 0.9, B.y + 1.6), d = p(x - 0.9, B.y + 1.6);
     const gr = ctx.createLinearGradient(0, d.sy, 0, a.sy); gr.addColorStop(0, '#2a3242'); gr.addColorStop(1, '#141826');
@@ -3066,6 +3085,7 @@
   }
   function drawGate(gt) {
     const B = BRIDGES[gt.b], x = gRel(gt.ax), y = B.y, z = B.z, big = gt.locked;
+    if (relZ(x - 2, z) < 1.5 || relZ(x + 2, z) < 1.5) return;
     const hw = big ? 1.5 : 1.05, ht = big ? 4.4 : 3.3, aw = 0.85, ah = 2.3;
     const p = (xx, yy, zz) => project(xx, yy, zz == null ? z : zz);
     const c0 = p(x - hw, y), c1 = p(x + hw, y), c2 = p(x + hw, y + ht), c3 = p(x - hw, y + ht);
@@ -3109,6 +3129,7 @@
   }
   function drawCauldron(c) {
     const B = BRIDGES[c.b], x = gRel(c.ax), y = B.y, z = B.z + DECK_D;
+    if (relZ(x - 2, z) < 1.5 || relZ(x + 2, z) < 1.5) return;
     const p = (xx, yy) => project(xx, yy, z);
     const base = p(x, y + 0.45), topq = p(x, y + 2.1), pot = p(x, y + 2.4), s = pot.s;
     ctx.strokeStyle = '#1a1c28'; ctx.lineWidth = Math.max(2, s * 0.22); ctx.beginPath(); ctx.moveTo(base.sx, base.sy); ctx.lineTo(topq.sx, topq.sy); ctx.stroke();
@@ -3130,6 +3151,7 @@
   }
   function drawKegs(k) {
     const B = BRIDGES[k.b], x = gRel(k.ax), y = B.y, z = B.z;
+    if (relZ(x - 2, z) < 1.5 || relZ(x + 2, z) < 1.5) return;
     const q = project(x, y - 0.75, z), s = q.s;
     ctx.strokeStyle = '#2a2018'; ctx.lineWidth = Math.max(1, s * 0.03);
     for (const ox of [-0.45, 0, 0.45]) { const t = project(x + ox, y - 0.05, z), b = project(x + ox, y - 0.7, z); ctx.beginPath(); ctx.moveTo(t.sx, t.sy); ctx.lineTo(b.sx, b.sy); ctx.stroke(); }
