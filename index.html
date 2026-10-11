@@ -620,10 +620,17 @@
       const avail = BRIDGES.map((B, i) => i).filter(i => n >= BRIDGE_FROM[i]);
       const r = Math.random();
       const b = avail.length === 1 ? 0 : (r < 0.45 ? 0 : (r < 0.75 || avail.length < 3) ? 1 : 2);
-      const B = BRIDGES[b], dir = Math.random() < 0.6 ? 1 : -1;
-      let ax = gAbs(pr.x) - dir * (visHalf(B.z) + 4 + Math.random() * 6);
-      const first = g.spans.find(sp => sp.b === b); ax = Math.max(first.ax0 + 1, Math.min(GORGE_SECTIONS * SECTION_LEN + 12, ax));
-      const en = makeEnemy(type, gRel(ax), deckZ(b)); en.baseY = B.y; en.b = b; en.runDir = dir; en.biteT = 0;
+      const B = BRIDGES[b], pax = gAbs(pr.x);
+      // a pier to climb: in view most of the time, sometimes out past the edge for anyone looking around
+      const reach = visHalf(B.z) * (Math.random() < 0.6 ? 1.15 : 2.4) + 1;
+      const minAx = (b === 0 ? -GORGE_LEAD : (BRIDGE_FROM[b] - 1) * SECTION_LEN) + SPAN_LEN;
+      const piers = g.spans.filter(sp => sp.b === b && !sp.down && sp.ax0 >= minAx && Math.abs(sp.ax0 - pax) < reach && (b > 0 || Math.abs(sp.ax0 - pax) > 3.5)).map(sp => sp.ax0);
+      const first = g.spans.find(sp => sp.b === b);
+      const ax = piers.length ? piers[Math.floor(Math.random() * piers.length)] : Math.max(first.ax0 + SPAN_LEN, Math.round((pax - visHalf(B.z) - 6) / SPAN_LEN) * SPAN_LEN);
+      const side = Math.random() < 0.5 ? -1 : 1;
+      const depth = b === 0 ? 7.5 : b === 1 ? 5 : 4;   // how far below the deck the climb starts (what the view can see of the pier)
+      const en = makeEnemy(type, gRel(ax) + side * 0.55, B.z - 0.1); en.baseY = B.y - depth; en.b = b; en.runDir = pr.x > gRel(ax) ? 1 : -1; en.biteT = 0;
+      en.climb = 0.001; en.climbSide = side; en.climbDepth = depth; en.climbRate = (type === 'scout' ? 0.36 : type === 'alpha' ? 0.2 : 0.27) * (0.85 + Math.random() * 0.3); en.pierAx = ax;
       en.w *= 0.88; en.h *= 0.88;   // perspective does the rest: far bridges are small and hard
       if (ENEMY_TYPES[type].howl) { for (const o of state.enemies) if (!o.dying) o.rally = 4; showBanner('A howl across the gorge', 1400); SFX.howl(en.x, B.z); }
       state.enemies.push(en); return;
@@ -1259,6 +1266,17 @@
       }
       if (isGorge() && en.b != null) {
         const g = s.gorge, pr = s.princess, v = en.speed * en.speedMul;
+        if (en.climb > 0 && en.climb < 1) {
+          // up the pier from the mist, over the parapet, onto the road
+          const B = BRIDGES[en.b];
+          en.climb = Math.min(1, en.climb + en.climbRate * dt * (en.pauseT > 0 ? 0.25 : 1));
+          const k = en.climb;
+          if (k < 0.86) { en.baseY = B.y - en.climbDepth + (en.climbDepth + PARAPET + 0.3) * (k / 0.86); en.z = B.z - 0.1; en.x = gRel(en.pierAx) + en.climbSide * 0.55; }
+          else { const q = (k - 0.86) / 0.14; en.baseY = B.y + (PARAPET + 0.3) * (1 - q); en.z = B.z - 0.1 + (deckZ(en.b) - B.z + 0.1) * q; en.x = gRel(en.pierAx) + en.climbSide * (0.55 + q * 0.6); }
+          en.bob += dt * 7;
+          if (en.climb >= 1) { en.climb = 1; en.baseY = B.y; en.z = deckZ(en.b); }
+          continue;
+        }
         if (en.descend) {
           // taking the stair down to the next bridge
           en.descend += dt; const k = Math.min(1, en.descend / 0.8);
@@ -1769,6 +1787,7 @@
   function killEnemy(en, head) {
     if (en.dying) return;
     en.dying = 0.01;
+    if (en.climb > 0 && en.climb < 1) en.plunge = true;
     const pts = en.score * (head ? 2 : 1);
     state.score += pts; scoreEl.textContent = state.score;
     if (head) floatText(en.x, (en.baseY || 0) + en.h, en.z, 'Headshot');
@@ -2734,7 +2753,7 @@
     s.shake = Math.max(s.shake, 1.3); buzz([60, 40, 120]); SFX.explosion(cx, B.z);
     for (let i = 0; i < 36; i++) s.particles.push({ x: gRel(sp.ax0 + Math.random() * SPAN_LEN), y: B.y - Math.random() * 2.5, z: B.z + Math.random() * DECK_D, vx: (Math.random() - 0.5) * 2, vy: -0.5 - Math.random() * 3, t: 0, life: 1.8 + Math.random(), color: Math.random() < 0.5 ? '#3a3f52' : '#232838', r: 0.14 + Math.random() * 0.25 });
     let fell = 0;
-    for (const en of s.enemies) if (!en.dying && en.b === sp.b && !en.lifted && !en.descend) { const ax = gAbs(en.x); if (ax >= sp.ax0 && ax < sp.ax1) { en.plunge = true; killEnemy(en, false); fell++; } }
+    for (const en of s.enemies) if (!en.dying && en.b === sp.b && !en.lifted && !en.descend) { const ax = gAbs(en.x); if ((ax >= sp.ax0 && ax < sp.ax1) || (en.climb > 0 && en.climb < 1 && en.pierAx === sp.ax0)) { en.plunge = true; killEnemy(en, false); fell++; } }
     if (fell) { const bonus = fell * 25; s.score += bonus; scoreEl.textContent = s.score; floatText(cx, B.y + 1.5, B.z, fell + ' fell  +' + bonus); }
     g.kegs = g.kegs.filter(k => !(k.b === sp.b && k.ax >= sp.ax0 && k.ax < sp.ax1));
     g.cauldrons = g.cauldrons.filter(c => !(c.b === sp.b && c.ax >= sp.ax0 && c.ax < sp.ax1));
@@ -2783,7 +2802,7 @@
     } else if (!pr.waiting) {
       // wolves right ahead on her bridge: the horse rears and she stops
       let threat = false;
-      for (const en of s.enemies) if (!en.dying && en.b === 0 && !en.lifted && !en.falling && !en.descend && en.x > pr.x - 0.5 && en.x < pr.x + 3.4) threat = true;
+      for (const en of s.enemies) if (!en.dying && en.b === 0 && !en.lifted && !en.falling && !en.descend && !(en.climb > 0 && en.climb < 1) && en.x > pr.x - 0.5 && en.x < pr.x + 3.4) threat = true;
       if (threat && pr.mounted) pr.rear = Math.max(pr.rear, 0.35);
       let v = pr.mounted ? RIDE_SPEED : WALK_SPEED; if (threat) v *= pr.mounted ? 0 : 0.35;
       if (g.finished) v = RIDE_SPEED;
@@ -2797,7 +2816,7 @@
     // contact on her bridge
     for (const en of s.enemies) {
       if (en.biteT > 0) en.biteT -= dt;
-      if (en.dying || en.lifted || en.falling || en.b !== 0 || en.descend || pr.grabbedBy === en) continue;
+      if (en.dying || en.lifted || en.falling || en.b !== 0 || en.descend || (en.climb > 0 && en.climb < 1) || pr.grabbedBy === en) continue;
       if (Math.abs(en.x - pr.x) < (pr.mounted ? 1.3 : 0.9)) {
         if (pr.mounted) { if (en.biteT > 0) continue; en.biteT = 1.8; hurtHorse(1, 'Bitten'); en.x -= en.runDir * 2.6; en.pauseT = 1.1; }
         else if (!pr.grabbedBy) { pr.grabbedBy = en; floatText(pr.x, 2.2, pr.z, 'Grabbed!'); buzz([40, 40, 40]); s.shake = Math.max(s.shake, 0.6); }
@@ -3261,10 +3280,17 @@
     }
     ctx.closePath();
   }
-  function drawWolfProfile(en, w, h, fur, dark, p) {
+  function drawWolfProfile(en, w, h, fur0, dark0, p) {
+    let fur = fur0, dark = dark0;
     const dir = en.runDir || 1, t = en.bob, m = en.dying ? 0 : Math.min(1.6, en.speedMul), lunge = Math.max(0, en.speedMul - 1);
     const rim = gorgeTheme().lip, alive = !en.dying;
-    ctx.save(); ctx.scale(dir, 1);   // everything below faces +x
+    ctx.save();
+    if (en.climb > 0 && en.climb < 1) {
+      // clinging to the pier: turned to face up it, body out to the side, claws scrabbling
+      const k = en.climb, over = k > 0.86 ? (k - 0.86) / 0.14 : 0;
+      ctx.scale(-en.climbSide, 1); ctx.rotate(-Math.PI / 2 * (1 - over * 0.8)); ctx.translate(-w * 0.1, h * 0.05);
+      fur = mix(fur, '#9a8670', 0.3); dark = mix(dark, '#5a4a3c', 0.3);
+    } else ctx.scale(dir, 1);   // everything below faces +x
     if (en.quad) {
       // ---- Scout: a lean running wolf, head low, back arched, tail streaming ----
       const L = w * 1.15, H = h * 0.95;
@@ -3876,7 +3902,7 @@
     if (en.plunge) { ctx.translate(0, en.dying * en.dying * 260); ctx.rotate(en.dying * 2.5 * (en.x < 0 ? -1 : 1)); }
     if (en.wading) { ctx.save(); ctx.beginPath(); ctx.rect(-w * 2, -h * 2, w * 4, h * 2 - h * 0.35); ctx.clip(); }
     // Shadow (stays on the ground even mid-leap)
-    ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(0, -lurch, w * 0.6, w * 0.18, 0, 0, 6.28); ctx.fill();
+    if (!(en.climb > 0 && en.climb < 1)) { ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(0, -lurch, w * 0.6, w * 0.18, 0, 0, 6.28); ctx.fill(); }
     const charred = en.burning > 0 ? Math.min(1, (BURN_TIME - en.burning) / BURN_TIME + 0.3) : 0;
     let skin = charred ? mix(en.color, '#1a1210', charred) : en.color;
     let cloth = charred ? mix(en.cloth, '#0d0a08', charred) : en.cloth;
